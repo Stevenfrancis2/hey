@@ -277,7 +277,7 @@ idea list you never revisit is just a graveyard.
 
 Each phase ends with something you'd genuinely miss if it were taken away.
 
-### Phase 0 — The Capture Loop *(a weekend)*
+### Phase 0 — The Capture Loop — **BUILT**
 grammY bot · Postgres + pgvector · capture text and voice · transcription · embedding ·
 instant ack · `/recall <query>` semantic search · deployed and live.
 
@@ -356,7 +356,8 @@ Worth naming up front, because these are the actual risks, not the technical one
 
 ---
 
-## 11. Next step
+## 11. Where this stands
 
-Answer the four questions in [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md) and Phase 0 gets
-built.
+The four framework decisions are locked — see [OPEN-QUESTIONS.md](OPEN-QUESTIONS.md).
+**Phase 0 is built and in this repository**; see the README for what runs and how to
+deploy it. Phase 1 (the Opus 5 tool loop, tasks, reminders, the morning brief) is next.

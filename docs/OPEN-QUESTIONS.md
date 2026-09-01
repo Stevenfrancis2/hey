@@ -1,39 +1,31 @@
-# Decisions needed before Phase 0
+# Decisions
 
-Four things. Everything else I can pick sensibly and you can override later.
+## Locked — 1 September 2026
 
-### 1. Language — TypeScript or Python?
-**Recommendation: TypeScript.** Best Telegram library (grammY), one language across bot,
-jobs, API and the graph UI, and a single deploy artifact. Python is the better call only
-if you plan to run local ML models yourself later.
+| Question | Decision |
+|---|---|
+| **Language** | **TypeScript**, Node 22. grammY for Telegram, one language across bot, jobs, API and the graph UI. |
+| **Hosting** | **Managed** — Fly.io (single container, `cdg`) + Neon Postgres. Migratable to your own hardware later; nothing in the design prevents it. |
+| **Voice notes** | **Yes, from day one.** Groq `whisper-large-v3-turbo`. The bot replies with the transcript so a misheard word is obvious immediately. |
+| **Calendar** | **Google Calendar**, read and write. Lands in Phase 3 — it needs an OAuth consent step from you and isn't worth blocking Phase 0 on. |
 
-### 2. Hosting — managed or your own hardware?
-**Recommendation: managed.** Fly.io + Neon Postgres, roughly $5–30/mo, deploys in one
-command, backups handled. The alternative is a box at home or a Pi — free and fully
-private, but you own uptime, and a second brain that's down when you have the idea is
-worse than no second brain. A middle path exists: managed now, migrate to your own
-hardware later. Nothing in the design prevents it.
-
-### 3. Voice notes from day one?
-**Recommendation: yes.** You will be holding a soldering iron or a ball of dough most of
-the times this thing is genuinely useful. Adds Groq Whisper, ~$2/mo, about half a day of
-work. Without it I think usage drops by more than half.
-
-### 4. Calendar — connect which one?
-Google, Apple/CalDAV, or skip it for now. Skipping is fine — reminders cover most of it
-and calendar can land in Phase 3.
+Embeddings weren't on the list but needed deciding: **Voyage AI `voyage-3.5-lite`** at 1024
+dimensions. Anthropic doesn't offer an embeddings endpoint, Voyage is the provider they
+recommend, and it's cheap. Swapping it later means re-embedding the `chunks` table — a
+background job, not a migration.
 
 ---
 
-## Things I'd also like to know, but can guess at
+## Still open — I can guess, but the answers make it better
 
-- **Where are you based?** Needed for weather, flying windows, and market hours. Guessing
-  Europe from Royal Pizza and DCL.
+- **Where are you based?** Needed for weather, flying windows and market hours. Currently
+  assumes `Europe/Paris` in `fly.toml` and `.env.example` — change `TZ` if that's wrong.
 - **What is Cligli, exactly?** I've assumed printing and assembly of a physical product.
-  Getting this right shapes the entity types and the weekly review questions.
-- **Do you already keep notes somewhere?** Obsidian, Notion, Apple Notes, a paper
-  notebook? If there's an existing pile, importing it seeds the graph with real history
-  instead of starting cold — that's the difference between the thing feeling useful in
-  week one versus week six.
-- **Stocks — watching or trading?** A watchlist digest and an active trading assistant are
-  very different features.
+  This shapes the entity types and the questions the weekly review asks.
+- **Do you already keep notes somewhere?** Obsidian, Notion, Apple Notes, a paper notebook.
+  Importing an existing pile seeds the graph with real history — that's the difference
+  between this feeling useful in week one versus week six.
+- **Stocks — watching or trading?** A watchlist digest and a trading assistant are very
+  different features.
+- **Which drones do you fly?** Seeding the `entities` table with your actual airframes
+  makes the repair log useful from the first crash instead of the fifth.

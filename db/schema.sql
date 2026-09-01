@@ -1,5 +1,6 @@
--- Second Steven — data model (draft)
+-- Second Steven — data model
 -- Postgres 17 + pgvector. One database for relational, vector, graph and job queue.
+-- Idempotent: safe to run on every boot.
 
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -8,104 +9,62 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ─────────────────────────────────────────────────────────────
 -- CONTEXTS — the life domains everything is filed under
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE contexts (
+CREATE TABLE IF NOT EXISTS contexts (
   id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  key         text UNIQUE NOT NULL,        -- cligli | drones | royal_pizza | work | personal
+  key         text UNIQUE NOT NULL,
   name        text NOT NULL,
   description text,
   colour      text,
   active      boolean NOT NULL DEFAULT true
 );
 
--- ─────────────────────────────────────────────────────────────
--- LAYER 1 — EPISODIC LOG. Immutable. Ground truth. Never deleted.
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE captures (
-  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  telegram_message_id bigint,
-  chat_id             bigint,
-  kind                text NOT NULL,       -- text|voice|photo|document|link|forward
-  raw_text            text,                -- typed text, transcription, or OCR
-  media_path          text,
-  media_mime          text,
-  duration_s          integer,
-  source              text NOT NULL DEFAULT 'telegram',
-  captured_at         timestamptz NOT NULL DEFAULT now(),
-  processed_at        timestamptz,
-  status              text NOT NULL DEFAULT 'pending'  -- pending|enriched|failed
-);
-CREATE INDEX ON captures (captured_at DESC);
-CREATE INDEX ON captures (status) WHERE status = 'pending';
-
--- What the model made of a capture
-CREATE TABLE capture_enrichment (
-  capture_id  uuid PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,
-  context_id  uuid REFERENCES contexts(id),
-  intent      text,       -- idea|task|question|log|reminder|research|decision|feeling
-  summary     text,
-  urgency     smallint,   -- 0-3
-  tags        text[],
-  model       text,
-  cost_usd    numeric(10,6)
-);
+INSERT INTO contexts (key, name, description, colour) VALUES
+  ('cligli',      'Cligli',      'The business — printing, assembly, orders, suppliers', '#7A5AA8'),
+  ('drones',      'Drones',      'FPV builds, repairs, training, DCL, content',          '#0E7C86'),
+  ('royal_pizza', 'Royal Pizza', 'Helping dad — dough logs, recipes, ops',               '#B03A2E'),
+  ('work',        'Work',        'The remote automation job',                            '#3F7A46'),
+  ('personal',    'Personal',    'Health, weather and flying, news, money',              '#7C7F86')
+ON CONFLICT (key) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────
--- LAYER 2 — SEMANTIC INDEX. Hybrid: vector + full text.
+-- LAYER 3 — ENTITY GRAPH (declared early; chunks reference it)
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE chunks (
-  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  capture_id uuid REFERENCES captures(id) ON DELETE CASCADE,
-  entity_id  uuid,                          -- FK added after entities
-  text       text NOT NULL,
-  embedding  vector(1536),
-  tsv        tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX ON chunks USING gin (tsv);
-
--- ─────────────────────────────────────────────────────────────
--- LAYER 3 — ENTITY GRAPH. Nodes and typed edges.
--- ─────────────────────────────────────────────────────────────
-CREATE TABLE entities (
+CREATE TABLE IF NOT EXISTS entities (
   id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   type          text NOT NULL,   -- person|business|project|product|drone|part|supplier|
                                  -- recipe|place|tool|topic|goal|event
   name          text NOT NULL,
   canonical_key text UNIQUE NOT NULL,       -- lowercased, deduped; the merge target
-  aliases       text[] DEFAULT '{}',
+  aliases       text[] NOT NULL DEFAULT '{}',
   context_id    uuid REFERENCES contexts(id),
   summary       text,                       -- rolling model-maintained description
-  attrs         jsonb DEFAULT '{}',
-  embedding     vector(1536),
+  attrs         jsonb NOT NULL DEFAULT '{}',
+  embedding     vector(1024),
   first_seen    timestamptz NOT NULL DEFAULT now(),
   last_seen     timestamptz NOT NULL DEFAULT now(),
   mention_count integer NOT NULL DEFAULT 1
 );
-CREATE INDEX ON entities USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX ON entities USING gin (name gin_trgm_ops);   -- fuzzy alias matching
-CREATE INDEX ON entities (type, context_id);
+CREATE INDEX IF NOT EXISTS entities_embedding_idx ON entities USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS entities_name_trgm_idx ON entities USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS entities_type_ctx_idx  ON entities (type, context_id);
 
-ALTER TABLE chunks ADD FOREIGN KEY (entity_id) REFERENCES entities(id) ON DELETE SET NULL;
-
-CREATE TABLE edges (
+CREATE TABLE IF NOT EXISTS edges (
   id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   src_id     uuid NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   dst_id     uuid NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   rel        text NOT NULL,   -- works_on|part_of|blocked_by|depends_on|supplier_of|knows|
                               -- located_at|fixed_by|caused_by|competes_with|mentioned_with
   weight     real NOT NULL DEFAULT 1.0,
-  attrs      jsonb DEFAULT '{}',
-  evidence   uuid[] DEFAULT '{}',           -- capture ids that support this edge
+  attrs      jsonb NOT NULL DEFAULT '{}',
+  evidence   uuid[] NOT NULL DEFAULT '{}',   -- capture ids supporting this edge
   first_seen timestamptz NOT NULL DEFAULT now(),
   last_seen  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (src_id, dst_id, rel)
 );
-CREATE INDEX ON edges (src_id, rel);
-CREATE INDEX ON edges (dst_id, rel);
+CREATE INDEX IF NOT EXISTS edges_src_idx ON edges (src_id, rel);
+CREATE INDEX IF NOT EXISTS edges_dst_idx ON edges (dst_id, rel);
 
--- Traversal is a recursive CTE over `edges` — no graph database required.
--- Example: everything within 2 hops of an entity.
+-- Traversal is a recursive CTE over `edges` — no graph database required:
 --   WITH RECURSIVE walk(id, depth) AS (
 --     SELECT $1::uuid, 0
 --     UNION
@@ -114,69 +73,118 @@ CREATE INDEX ON edges (dst_id, rel);
 --   ) SELECT * FROM walk;
 
 -- ─────────────────────────────────────────────────────────────
--- LAYER 4 — WORKING STATE. The actionable layer.
+-- LAYER 1 — EPISODIC LOG. Immutable. Ground truth. Never deleted.
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE tasks (
-  id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-  title         text NOT NULL,
-  detail        text,
-  context_id    uuid REFERENCES contexts(id),
-  entity_id     uuid REFERENCES entities(id),
-  status        text NOT NULL DEFAULT 'open',  -- open|doing|done|dropped
-  priority      smallint NOT NULL DEFAULT 1,
-  due_at        timestamptz,
-  snoozed_until timestamptz,
-  source_capture uuid REFERENCES captures(id),
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  completed_at  timestamptz
+CREATE TABLE IF NOT EXISTS captures (
+  id                  uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  telegram_message_id bigint,
+  chat_id             bigint,
+  kind                text NOT NULL,       -- text|voice|photo|document|link|forward
+  raw_text            text,                -- typed text, transcription, or OCR
+  media_file_id       text,                -- telegram file id, re-fetchable
+  media_mime          text,
+  duration_s          integer,
+  source              text NOT NULL DEFAULT 'telegram',
+  captured_at         timestamptz NOT NULL DEFAULT now(),
+  processed_at        timestamptz,
+  status              text NOT NULL DEFAULT 'pending',  -- pending|enriched|failed
+  error               text
 );
-CREATE INDEX ON tasks (status, due_at) WHERE status IN ('open','doing');
+CREATE INDEX IF NOT EXISTS captures_at_idx      ON captures (captured_at DESC);
+CREATE INDEX IF NOT EXISTS captures_pending_idx ON captures (status) WHERE status = 'pending';
 
-CREATE TABLE reminders (
+-- What the model made of a capture (populated from Phase 1)
+CREATE TABLE IF NOT EXISTS capture_enrichment (
+  capture_id uuid PRIMARY KEY REFERENCES captures(id) ON DELETE CASCADE,
+  context_id uuid REFERENCES contexts(id),
+  intent     text,       -- idea|task|question|log|reminder|research|decision|feeling
+  summary    text,
+  urgency    smallint,
+  tags       text[],
+  model      text,
+  cost_usd   numeric(10,6)
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- LAYER 2 — SEMANTIC INDEX. Hybrid: vector + full text.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS chunks (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  capture_id uuid REFERENCES captures(id) ON DELETE CASCADE,
+  entity_id  uuid REFERENCES entities(id) ON DELETE SET NULL,
+  text       text NOT NULL,
+  embedding  vector(1024),
+  tsv        tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS chunks_embedding_idx ON chunks USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS chunks_tsv_idx       ON chunks USING gin (tsv);
+CREATE INDEX IF NOT EXISTS chunks_capture_idx   ON chunks (capture_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- LAYER 4 — WORKING STATE. The actionable layer. (Phase 1)
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS tasks (
+  id             uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title          text NOT NULL,
+  detail         text,
+  context_id     uuid REFERENCES contexts(id),
+  entity_id      uuid REFERENCES entities(id),
+  status         text NOT NULL DEFAULT 'open',  -- open|doing|done|dropped
+  priority       smallint NOT NULL DEFAULT 1,
+  due_at         timestamptz,
+  snoozed_until  timestamptz,
+  source_capture uuid REFERENCES captures(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  completed_at   timestamptz
+);
+CREATE INDEX IF NOT EXISTS tasks_open_idx ON tasks (status, due_at) WHERE status IN ('open','doing');
+
+CREATE TABLE IF NOT EXISTS reminders (
   id       uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   task_id  uuid REFERENCES tasks(id) ON DELETE CASCADE,
   text     text NOT NULL,
   fire_at  timestamptz,
-  rrule    text,                                -- recurring, iCal RRULE
+  rrule    text,
   status   text NOT NULL DEFAULT 'scheduled',   -- scheduled|fired|cancelled
   fired_at timestamptz
 );
-CREATE INDEX ON reminders (fire_at) WHERE status = 'scheduled';
+CREATE INDEX IF NOT EXISTS reminders_due_idx ON reminders (fire_at) WHERE status = 'scheduled';
 
 -- ─────────────────────────────────────────────────────────────
--- LAYER 5 — DISTILLED PROFILE. Prepended to every conversation.
+-- LAYER 5 — DISTILLED PROFILE. Prepended to every conversation. (Phase 2)
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE profile_docs (
-  key        text PRIMARY KEY,     -- 'core' | 'context:cligli' | 'context:drones' | ...
-  body_md    text NOT NULL,
-  tokens     integer,
-  updated_at timestamptz NOT NULL DEFAULT now(),
+CREATE TABLE IF NOT EXISTS profile_docs (
+  key         text PRIMARY KEY,     -- 'core' | 'context:cligli' | ...
+  body_md     text NOT NULL,
+  tokens      integer,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
   hand_edited boolean NOT NULL DEFAULT false
 );
 
 -- ─────────────────────────────────────────────────────────────
--- CONVERSATION THREADING
+-- CONVERSATION THREADING (Phase 1)
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE threads (
+CREATE TABLE IF NOT EXISTS threads (
   id             uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   chat_id        bigint NOT NULL,
   title          text,
   last_active_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   thread_id  uuid NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
   role       text NOT NULL,        -- user|assistant|system
   content    jsonb NOT NULL,       -- full content blocks, incl. tool use/results
   created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ON messages (thread_id, created_at);
+CREATE INDEX IF NOT EXISTS messages_thread_idx ON messages (thread_id, created_at);
 
 -- ─────────────────────────────────────────────────────────────
--- PROACTIVE OUTPUT
+-- PROACTIVE OUTPUT (Phase 1)
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE briefs (
+CREATE TABLE IF NOT EXISTS briefs (
   id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   kind         text NOT NULL,       -- morning|evening|weekly|alert
   context_id   uuid REFERENCES contexts(id),
@@ -186,9 +194,9 @@ CREATE TABLE briefs (
 );
 
 -- ─────────────────────────────────────────────────────────────
--- DOMAIN TABLES — structured logs that become real answers over time
+-- DOMAIN TABLES — structured logs that become real answers (Phase 3)
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE dough_batches (
+CREATE TABLE IF NOT EXISTS dough_batches (
   id            uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   made_on       date NOT NULL,
   flour         text,
@@ -203,18 +211,18 @@ CREATE TABLE dough_batches (
   capture_id    uuid REFERENCES captures(id)
 );
 
-CREATE TABLE flight_sessions (
+CREATE TABLE IF NOT EXISTS flight_sessions (
   id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   flown_on   date NOT NULL,
   place      text,
   drone_id   uuid REFERENCES entities(id),
   packs      smallint,
-  conditions jsonb,                 -- wind, gusts, temp, snapshot at the time
+  conditions jsonb,                 -- wind, gusts, temp at the time
   notes      text,
   capture_id uuid REFERENCES captures(id)
 );
 
-CREATE TABLE repairs (
+CREATE TABLE IF NOT EXISTS repairs (
   id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   drone_id   uuid REFERENCES entities(id),
   part_id    uuid REFERENCES entities(id),
@@ -228,17 +236,17 @@ CREATE TABLE repairs (
 -- ─────────────────────────────────────────────────────────────
 -- OBSERVABILITY — know what it costs
 -- ─────────────────────────────────────────────────────────────
-CREATE TABLE llm_calls (
-  id           bigserial PRIMARY KEY,
-  route        text NOT NULL,       -- classify|chat|distill|brief|research
-  model        text NOT NULL,
-  tokens_in    integer,
-  tokens_out   integer,
-  cache_read   integer,
-  cost_usd     numeric(10,6),
-  latency_ms   integer,
-  created_at   timestamptz NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS llm_calls (
+  id         bigserial PRIMARY KEY,
+  route      text NOT NULL,       -- classify|chat|distill|brief|research|embed|transcribe
+  model      text NOT NULL,
+  tokens_in  integer,
+  tokens_out integer,
+  cache_read integer,
+  cost_usd   numeric(10,6),
+  latency_ms integer,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX ON llm_calls (created_at DESC);
+CREATE INDEX IF NOT EXISTS llm_calls_at_idx ON llm_calls (created_at DESC);
 
 -- pg-boss creates and owns its own schema in this same database.
