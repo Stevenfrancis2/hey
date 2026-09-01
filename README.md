@@ -6,7 +6,9 @@ One chat. You throw everything at it — voice notes while your hands are in piz
 a business idea mid-drone-repair, a link, a photo of a broken arm on a quad. It captures,
 understands, files it into a graph of your life, and then works for you.
 
-**Plan:** [docs/PLAN.md](docs/PLAN.md) · **Decisions:** [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) · **Data model:** [db/schema.sql](db/schema.sql)
+**Start here:** [docs/MODULES.md](docs/MODULES.md) — the full system: two surfaces, ten rooms, and the order to build them in.
+
+[docs/PLAN.md](docs/PLAN.md) architecture · [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) decisions · [docs/BRAINDUMP-2026-09-01.md](docs/BRAINDUMP-2026-09-01.md) raw scope · [db/schema.sql](db/schema.sql) data model
 
 ---
 
@@ -108,7 +110,12 @@ Seeded in `contexts` on first migration; Phase 1 classifies every capture into o
 | `work` | the remote automation job |
 | `personal` | health, weather and flying windows, news, money |
 
-## Next — Phase 1
+## Next
 
-The Opus 5 tool loop, classification into contexts, tasks and reminders with
-natural-language time parsing, web research, and the 06:30 morning brief.
+**Phase 1 — the brain.** The Opus 5 tool loop, classification into rooms, tasks and
+reminders with natural-language time parsing, web research, and the 06:30 morning brief.
+Everything else is built on it.
+
+Then the study planner (there is a bank project with a real deadline), then the finance
+ledger, then the console. Full reasoning and the rest of the order in
+[docs/MODULES.md](docs/MODULES.md).
