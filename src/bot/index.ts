@@ -7,6 +7,8 @@ import { recall, recent } from "../memory/recall.js";
 import { listTasks } from "../memory/tasks.js";
 import { costSummary } from "../agent/client.js";
 import { sendBrief } from "../jobs/brief.js";
+import { runArchive } from "../jobs/archive.js";
+import { listProjects } from "../memory/projects.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -63,6 +65,8 @@ bot.command("start", async (ctx) => {
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
       "<b>/tasks</b> — what's open, by room",
+      "<b>/projects</b> — projects and deadlines",
+      "<b>/export</b> — everything, as files, right now",
       "<b>/brief</b> — today's brief now",
       "<b>/recent</b> — the last ten things",
       "<b>/stats</b> — what's in the brain",
@@ -73,8 +77,33 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/recall <query> · /tasks · /brief · /recent · /stats · /costs"),
+  ctx.reply("/recall <query> · /tasks · /projects · /brief · /export · /recent · /stats · /costs"),
 );
+
+bot.command("projects", async (ctx) => {
+  const projects = await listProjects();
+  if (projects.length === 0) {
+    await ctx.reply("No projects yet. Tell me about one and I'll set it up.");
+    return;
+  }
+  const body = projects
+    .map((p) => {
+      const days =
+        p.deadline != null
+          ? Math.ceil((new Date(p.deadline).getTime() - Date.now()) / 864e5)
+          : null;
+      const when =
+        days === null ? "no deadline" : days < 0 ? `<b>${-days}d overdue</b>` : `${days}d left`;
+      return `· <b>${escapeHtml(p.name)}</b> — ${when}${p.client ? ` · ${escapeHtml(p.client)}` : ""}`;
+    })
+    .join("\n");
+  await ctx.reply(body, { parse_mode: "HTML" });
+});
+
+bot.command("export", async (ctx) => {
+  await ctx.replyWithChatAction("upload_document");
+  await runArchive(ctx.api, ctx.chat.id);
+});
 
 bot.command("tasks", async (ctx) => {
   const tasks = await listTasks();

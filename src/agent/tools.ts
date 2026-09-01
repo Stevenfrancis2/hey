@@ -3,6 +3,8 @@ import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
 import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
 import { createReminder, listReminders, cancelReminder } from "../memory/reminders.js";
+import { createProject, listProjects, updateProject } from "../memory/projects.js";
+import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
 import { CONTEXT_KEYS } from "./classify.js";
 import { log } from "../log.js";
 
@@ -133,6 +135,120 @@ export const cancelReminderTool = betaZodTool({
   },
 });
 
+
+// ── projects ──────────────────────────────────────────────
+export const createProjectTool = betaZodTool({
+  name: "create_project",
+  description:
+    "Record a piece of work with a name and usually a deadline — a client job, a build, " +
+    "a study goal. Use whenever Steven mentions a project, so tasks and notes can hang off it. " +
+    "Calling it again with the same name updates that project rather than duplicating it.",
+  inputSchema: z.object({
+    name: z.string(),
+    context: ContextKey.optional(),
+    client: z.string().optional(),
+    description: z.string().optional().describe("What it is and what done looks like"),
+    deadline: z.string().optional().describe("ISO 8601 date or datetime"),
+  }),
+  run: async (input) => {
+    const project = await createProject({
+      name: input.name,
+      contextKey: input.context ?? null,
+      client: input.client ?? null,
+      description: input.description ?? null,
+      deadline: input.deadline ? new Date(input.deadline) : null,
+    });
+    return `Project "${project.name}" (${project.key}) in ${project.context_key ?? "no room"}` +
+      `${project.deadline ? `, due ${formatDate(project.deadline)}` : ", no deadline"}.`;
+  },
+});
+
+export const listProjectsTool = betaZodTool({
+  name: "list_projects",
+  description: "List Steven's projects and their deadlines.",
+  inputSchema: z.object({ include_finished: z.boolean().optional() }),
+  run: async ({ include_finished }) => {
+    const projects = await listProjects(include_finished ?? false);
+    if (projects.length === 0) return "No projects.";
+    return projects
+      .map((p) => {
+        const days =
+          p.deadline != null
+            ? Math.ceil((new Date(p.deadline).getTime() - Date.now()) / 864e5)
+            : null;
+        const when = days === null ? "no deadline" : days < 0 ? `${-days}d OVERDUE` : `${days}d left`;
+        return `- ${p.name} [${p.status}] ${when}${p.client ? ` · ${p.client}` : ""}` +
+          `${p.context_key ? ` · ${p.context_key}` : ""}`;
+      })
+      .join("\n");
+  },
+});
+
+export const updateProjectTool = betaZodTool({
+  name: "update_project",
+  description: "Change a project's status, deadline or description. Matches loosely on the name.",
+  inputSchema: z.object({
+    name: z.string(),
+    status: z.enum(["active", "paused", "done", "dropped"]).optional(),
+    deadline: z.string().optional().describe("ISO 8601"),
+    description: z.string().optional(),
+  }),
+  run: async (input) => {
+    const project = await updateProject(input.name, {
+      status: input.status,
+      deadline: input.deadline ? new Date(input.deadline) : null,
+      description: input.description,
+    });
+    return project
+      ? `Updated "${project.name}": ${project.status}, due ${formatDate(project.deadline)}.`
+      : `No project matching "${input.name}".`;
+  },
+});
+
+// ── watchlist ─────────────────────────────────────────────
+export const addWatchTool = betaZodTool({
+  name: "add_to_watchlist",
+  description:
+    "Track a stock, a crypto asset, or a broad theme (drones, nuclear, water, AI). " +
+    "Always capture WHY he is watching it — the thesis is the part worth having later, " +
+    "because it is what lets him check whether he was right.",
+  inputSchema: z.object({
+    kind: z.enum(["stock", "crypto", "theme"]),
+    name: z.string(),
+    symbol: z.string().optional().describe("Ticker or coin symbol; omit for a theme"),
+    thesis: z.string().optional().describe("Why he is watching it, in his own reasoning"),
+  }),
+  run: async (input) => {
+    const item = await addToWatchlist(input);
+    return `Watching ${item.name}${item.symbol ? ` (${item.symbol})` : ""} as a ${item.kind}.` +
+      `${item.thesis ? ` Thesis noted.` : " No thesis recorded — worth adding one."}`;
+  },
+});
+
+export const listWatchTool = betaZodTool({
+  name: "list_watchlist",
+  description: "What Steven is currently tracking, and why.",
+  inputSchema: z.object({}),
+  run: async () => {
+    const items = await listWatchlist();
+    if (items.length === 0) return "Watchlist is empty.";
+    return items
+      .map((i) => `- [${i.kind}] ${i.name}${i.symbol ? ` (${i.symbol})` : ""}` +
+        `${i.thesis ? ` — ${i.thesis}` : ""}`)
+      .join("\n");
+  },
+});
+
+export const removeWatchTool = betaZodTool({
+  name: "remove_from_watchlist",
+  description: "Stop tracking something.",
+  inputSchema: z.object({ name: z.string() }),
+  run: async ({ name }) => {
+    const item = await removeFromWatchlist(name);
+    return item ? `Stopped watching ${item.name}.` : `Nothing on the watchlist matching "${name}".`;
+  },
+});
+
 /** Runs on Anthropic's servers — no implementation, and no scraping code to own. */
 export const webSearchTool = {
   type: "web_search_20260209" as const,
@@ -149,6 +265,12 @@ export const clientTools = [
   setReminderTool,
   listRemindersTool,
   cancelReminderTool,
+  createProjectTool,
+  listProjectsTool,
+  updateProjectTool,
+  addWatchTool,
+  listWatchTool,
+  removeWatchTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

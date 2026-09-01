@@ -32,6 +32,9 @@ it stays quiet. There is no mode to switch.
 | Tasks | Created from what you say, closed by loose title match — say it how you'd say it |
 | Reminders | Natural language in, absolute time out, fired on a minute tick |
 | Briefs | 06:30 daily, 18:00 Sunday weekly, in your timezone |
+| Projects | Work with deadlines and an overdue count, across every room |
+| Watchlist | Stocks, crypto and themes — tracked with the reasoning, not just the ticker |
+| **Archive** | **Everything, as plain-text files, delivered to you nightly at 03:00 and on `/export`** |
 | Privacy | Single user. Any other Telegram account is silently ignored. |
 
 ```
@@ -40,8 +43,27 @@ it stays quiet. There is no mode to switch.
 /brief               today's brief, now
 /recent              the last ten things
 /stats               what's in the brain
+/projects            projects and deadlines
+/export              everything, as files, right now
 /costs               what it's spending today and this month
 ```
+
+### Nothing here is trapped
+
+At 03:00 every night — and any time you type `/export` — the whole system is written out
+as two files and sent to you on Telegram:
+
+- **`second-steven-YYYY-MM-DD.md`** — your profile, every project, every capture grouped by
+  room *and* by day, all tasks and reminders, the watchlist, and the full conversation
+  history. Plain text. It opens on anything, with no software, no server and no account.
+- **`second-steven-YYYY-MM-DD.json`** — the same data, machine-readable, for rebuilding.
+
+The database is the working store. **These files are the durable copy.** If the server,
+the database and the bot all disappear tomorrow, the last archive is enough to pick up
+exactly where you left off — and none of the thinking has to happen twice.
+
+They arrive over Telegram deliberately: no bucket to configure, no extra credentials to
+leak, and they land somewhere you already have on every device.
 
 ### The nine rooms
 

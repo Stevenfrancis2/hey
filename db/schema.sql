@@ -253,4 +253,52 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 );
 CREATE INDEX IF NOT EXISTS llm_calls_at_idx ON llm_calls (created_at DESC);
 
+-- ─────────────────────────────────────────────────────────────
+-- PROJECTS — work with a deadline and material attached to it
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS projects (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  key          text UNIQUE NOT NULL,        -- short slug he can say out loud
+  name         text NOT NULL,
+  context_id   uuid REFERENCES contexts(id),
+  client       text,
+  description  text,
+  status       text NOT NULL DEFAULT 'active',  -- active|paused|done|dropped
+  deadline     timestamptz,
+  started_at   timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS projects_active_idx ON projects (status, deadline)
+  WHERE status IN ('active','paused');
+
+ALTER TABLE tasks              ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
+ALTER TABLE capture_enrichment ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
+CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks (project_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- WATCHLIST — what he is tracking, and why he is tracking it
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS watchlist (
+  id       uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind     text NOT NULL,          -- stock|crypto|theme
+  symbol   text,                   -- ticker or coin; null for a theme
+  name     text NOT NULL,
+  thesis   text,                   -- why he is watching. The important column.
+  active   boolean NOT NULL DEFAULT true,
+  added_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (kind, name)
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- ARCHIVE RUNS — proof the plain-text mirror actually happened
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS archive_runs (
+  id         bigserial PRIMARY KEY,
+  captures   integer NOT NULL,
+  bytes_md   integer NOT NULL,
+  bytes_json integer NOT NULL,
+  delivered  boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- pg-boss creates and owns its own schema in this same database.
