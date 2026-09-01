@@ -26,6 +26,12 @@ export const config = {
     webhookSecret: optional("TELEGRAM_WEBHOOK_SECRET", "sven-local-secret"),
   },
 
+  anthropic: {
+    apiKey: required("ANTHROPIC_API_KEY"),
+    model: optional("ANTHROPIC_MODEL", "claude-opus-5"),
+    fastModel: optional("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5"),
+  },
+
   voyage: {
     apiKey: required("VOYAGE_API_KEY"),
     model: optional("VOYAGE_MODEL", "voyage-3.5-lite"),

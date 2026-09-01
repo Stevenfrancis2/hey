@@ -2,8 +2,13 @@ import PgBoss from "pg-boss";
 import type { Api } from "grammy";
 import { log } from "../log.js";
 import { enrichCapture } from "./enrich.js";
+import { fireDueReminders, sendBrief } from "./brief.js";
+import { config } from "../config.js";
 
 export const ENRICH_QUEUE = "capture.enrich";
+const TICK_QUEUE = "reminders.tick";
+const MORNING_QUEUE = "brief.morning";
+const WEEKLY_QUEUE = "brief.weekly";
 
 export type EnrichJob = { captureId: string };
 
@@ -30,8 +35,32 @@ export async function startJobs(api: Api): Promise<PgBoss> {
     },
   );
 
+  // ── scheduled work ──────────────────────────────────────
+  const chatId = config.telegram.ownerId;
+
+  for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE]) {
+    await instance.createQueue(name);
+  }
+
+  await instance.work(TICK_QUEUE, { batchSize: 1 }, async () => {
+    const fired = await fireDueReminders(api, chatId);
+    if (fired > 0) log.info({ fired }, "reminders fired");
+  });
+  await instance.work(MORNING_QUEUE, { batchSize: 1 }, async () => {
+    await sendBrief(api, chatId, "morning");
+  });
+  await instance.work(WEEKLY_QUEUE, { batchSize: 1 }, async () => {
+    await sendBrief(api, chatId, "weekly");
+  });
+
+  // Cron is evaluated in the timezone we pass, so DST is handled for us.
+  const tz = { tz: config.timezone };
+  await instance.schedule(TICK_QUEUE, "* * * * *", {}, tz);
+  await instance.schedule(MORNING_QUEUE, "30 6 * * *", {}, tz);
+  await instance.schedule(WEEKLY_QUEUE, "0 18 * * 0", {}, tz);
+
   boss = instance;
-  log.info("job runner started");
+  log.info({ timezone: config.timezone }, "job runner started");
   return instance;
 }
 

@@ -4,6 +4,9 @@ import { log } from "../log.js";
 import { recordCapture, stats, type CaptureKind } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
 import { recall, recent } from "../memory/recall.js";
+import { listTasks } from "../memory/tasks.js";
+import { costSummary } from "../agent/client.js";
+import { sendBrief } from "../jobs/brief.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -55,15 +58,59 @@ bot.command("start", async (ctx) => {
       "photos of a broken arm, a dough batch that worked. I store all of it and",
       "make it findable. I won't ask you to categorise anything.",
       "",
+      "You never have to choose between noting something and asking something.",
+      "I keep everything, and I answer when you actually asked.",
+      "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/tasks</b> — what's open, by room",
+      "<b>/brief</b> — today's brief now",
       "<b>/recent</b> — the last ten things",
       "<b>/stats</b> — what's in the brain",
+      "<b>/costs</b> — what it's spending",
     ].join("\n"),
     { parse_mode: "HTML" },
   );
 });
 
-bot.command("help", (ctx) => ctx.reply("/recall <query> · /recent · /stats"));
+bot.command("help", (ctx) =>
+  ctx.reply("/recall <query> · /tasks · /brief · /recent · /stats · /costs"),
+);
+
+bot.command("tasks", async (ctx) => {
+  const tasks = await listTasks();
+  if (tasks.length === 0) {
+    await ctx.reply("Nothing open.");
+    return;
+  }
+  const byRoom = new Map<string, string[]>();
+  for (const task of tasks) {
+    const room = task.context_key ?? "unfiled";
+    const due = task.due_at
+      ? ` — ${new Date(task.due_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+      : "";
+    byRoom.set(room, [...(byRoom.get(room) ?? []), `· ${escapeHtml(task.title)}${due}`]);
+  }
+  const body = [...byRoom.entries()]
+    .map(([room, lines]) => `<b>${room}</b>\n${lines.join("\n")}`)
+    .join("\n\n");
+  await ctx.reply(body, { parse_mode: "HTML" });
+});
+
+bot.command("brief", async (ctx) => {
+  await ctx.replyWithChatAction("typing");
+  await sendBrief(ctx.api, ctx.chat.id, "morning");
+});
+
+bot.command("costs", async (ctx) => {
+  const costs = await costSummary();
+  await ctx.reply(
+    [
+      `today  <b>$${costs.today.toFixed(3)}</b> over ${costs.calls} calls`,
+      `month  <b>$${costs.month.toFixed(2)}</b>`,
+    ].join("\n"),
+    { parse_mode: "HTML" },
+  );
+});
 
 bot.command("recall", async (ctx) => {
   const question = ctx.match?.trim();

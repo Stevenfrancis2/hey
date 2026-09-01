@@ -1,6 +1,6 @@
 # Decisions
 
-## Locked — 1 September 2026
+## Framework — locked 1 September 2026
 
 | Question | Decision |
 |---|---|
@@ -29,3 +29,28 @@ background job, not a migration.
   different features.
 - **Which drones do you fly?** Seeding the `entities` table with your actual airframes
   makes the repair log useful from the first crash instead of the fifth.
+
+
+## Scope — locked 1 September 2026
+
+| Question | Decision |
+|---|---|
+| **Build next** | **Phase 1 — the brain.** Built; see the README. |
+| **Nemo** | **NVIDIA NeMo framework** — NIM microservices, Docker, GPU serving. The study curriculum is infrastructure-led, not model-led. |
+| **The ~4k** | **Already paid.** It books as revenue in that business, not a receivable. Nothing outstanding to chase. |
+| **Filament / farm manager** | **Exists, on a Raspberry Pi**, built earlier with Claude Code. Not on GitHub. To be imported, not rebuilt — and it stays on the Pi, because the printers are on the local network. See [INTERFACE.md](INTERFACE.md). |
+| **Telegram or a UI?** | **Both, with a clear split.** Telegram is the microphone, the console is the cockpit. Full reasoning in [INTERFACE.md](INTERFACE.md). |
+
+### On the bank curriculum
+
+NVIDIA NeMo means the study plan is mostly deployment and serving, not model science:
+containerised GPU inference, NIM microservices, retrieval, and — for a bank — **guardrails
+and evaluation**, which is the part most people skip and the part a bank will actually
+audit you on. Start from your own `ragagent` work rather than from zero.
+
+### Still open
+
+- **"New doors"** — sales channels, or doors as a product? Assuming channels.
+- **Your friend** — read-only on the shared room, or read and write?
+- **Where are you based?** Currently assuming `Europe/Paris`; change `TZ` if wrong.
+- **What is Cligli, exactly?** Assuming printing and assembly of a physical product.

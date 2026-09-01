@@ -23,7 +23,11 @@ INSERT INTO contexts (key, name, description, colour) VALUES
   ('drones',      'Drones',      'FPV builds, repairs, training, DCL, content',          '#0E7C86'),
   ('royal_pizza', 'Royal Pizza', 'Helping dad — dough logs, recipes, ops',               '#B03A2E'),
   ('work',        'Work',        'The remote automation job',                            '#3F7A46'),
-  ('personal',    'Personal',    'Health, weather and flying, news, money',              '#7C7F86')
+  ('bank_ai',     'Bank AI',     'AI agents for banks — the side project, shared',        '#A9500B'),
+  ('finance',     'Finance',     'The books across every business',                       '#0A6B74'),
+  ('land',        'Land',        'The 600 m² plot — guesthouse or house',                 '#6B7A55'),
+  ('body',        'Body',        'Gym, training, food',                                   '#C2557A'),
+  ('personal',    'Personal',    'News, weather and flying, everything else',             '#7C7F86')
 ON CONFLICT (key) DO NOTHING;
 
 -- ─────────────────────────────────────────────────────────────

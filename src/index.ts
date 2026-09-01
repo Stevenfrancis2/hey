@@ -5,9 +5,11 @@ import { migrate } from "./db/migrate.js";
 import { bot } from "./bot/index.js";
 import { startJobs, stopJobs } from "./jobs/index.js";
 import { startServer } from "./web/server.js";
+import { seedProfile } from "./agent/prompt.js";
 
 async function main(): Promise<void> {
   await migrate();
+  await seedProfile();
   await startJobs(bot.api);
 
   // Bring the health endpoint up before touching Telegram: if Telegram is

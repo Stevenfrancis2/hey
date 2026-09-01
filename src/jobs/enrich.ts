@@ -4,10 +4,15 @@ import { getCapture, markEnriched, markFailed, setCaptureText } from "../memory/
 import { indexCapture } from "../memory/index.js";
 import { transcribe } from "../integrations/transcribe.js";
 import { downloadFile } from "../integrations/telegram-files.js";
+import { classify, saveClassification } from "../agent/classify.js";
+import { respond } from "../agent/run.js";
+
+/** Intents where he is talking *to* the assistant rather than *at* it. */
+const WANTS_A_REPLY = new Set(["question", "request"]);
 
 /**
- * Everything expensive happens here, off the message path: transcribe if it
- * was spoken, then chunk and embed so it is findable.
+ * Everything expensive happens here, off the message path: transcribe, index,
+ * classify, and — only when he actually asked something — answer.
  */
 export async function enrichCapture(api: Api, captureId: string): Promise<void> {
   const capture = await getCapture(captureId);
@@ -15,6 +20,9 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
     log.warn({ captureId }, "enrich: capture vanished");
     return;
   }
+
+  const chatId = Number(capture.chat_id);
+  const replyTo = capture.telegram_message_id ? Number(capture.telegram_message_id) : null;
 
   try {
     let text = capture.raw_text ?? "";
@@ -30,9 +38,8 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
 
       // Show the transcript back so a misheard word is obvious immediately.
       if (transcript.length > 0) {
-        const replyTo = capture.telegram_message_id ? Number(capture.telegram_message_id) : null;
         await api.sendMessage(
-          Number(capture.chat_id),
+          chatId,
           `🎙 ${transcript}`,
           replyTo
             ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }
@@ -47,8 +54,33 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
     }
 
     const chunks = await indexCapture(captureId, text);
+
+    const classification = await classify(text);
+    if (classification) {
+      await saveClassification(captureId, classification);
+      log.info(
+        { captureId, room: classification.context, intent: classification.intent, chunks },
+        "classified",
+      );
+    }
+
     await markEnriched(captureId);
-    log.info({ captureId, chunks }, "indexed");
+
+    // He never has to choose between noting something and asking something.
+    // Everything is stored; a reply happens only when he actually asked.
+    if (classification && WANTS_A_REPLY.has(classification.intent)) {
+      await api.sendChatAction(chatId, "typing").catch(() => {});
+      const reply = await respond(chatId, text);
+      if (reply.trim().length > 0) {
+        await api.sendMessage(
+          chatId,
+          reply,
+          replyTo
+            ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }
+            : {},
+        );
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, captureId }, "enrich failed");

@@ -12,10 +12,13 @@ understands, files it into a graph of your life, and then works for you.
 
 ---
 
-## Status — Phase 0 is built
+## Status — Phase 1 is built
 
-The capture loop works end to end. No intelligence yet beyond store-and-search; that's
-Phase 1.
+Capture, understanding and the agent all work end to end.
+
+**You never choose between noting something and asking something.** Everything you send is
+stored. If you actually asked a question or wanted something done, it answers — otherwise
+it stays quiet. There is no mode to switch.
 
 | Works today | |
 |---|---|
@@ -24,13 +27,28 @@ Phase 1.
 | Transcription | Voice notes via Groq Whisper, replied back so a misheard word is obvious |
 | Indexing | Chunked and embedded with Voyage, in a background job |
 | Search | `/recall` — hybrid vector + full-text with reciprocal rank fusion |
+| Understanding | Every capture classified into one of nine rooms, with intent and urgency |
+| The agent | Claude Opus 5 with adaptive thinking, eight tools, and hosted web search |
+| Tasks | Created from what you say, closed by loose title match — say it how you'd say it |
+| Reminders | Natural language in, absolute time out, fired on a minute tick |
+| Briefs | 06:30 daily, 18:00 Sunday weekly, in your timezone |
 | Privacy | Single user. Any other Telegram account is silently ignored. |
 
 ```
 /recall <anything>   search everything you've ever sent
+/tasks               what's open, grouped by room
+/brief               today's brief, now
 /recent              the last ten things
 /stats               what's in the brain
+/costs               what it's spending today and this month
 ```
+
+### The nine rooms
+
+`cligli` · `drones` · `royal_pizza` · `work` · `bank_ai` · `finance` · `land` · `body` · `personal`
+
+Every capture lands in exactly one. Money talk goes to `finance` even when it names another
+business, so the books stay in one place.
 
 ### The design rule
 
@@ -58,6 +76,7 @@ Four credentials are required:
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_OWNER_ID` | [@userinfobot](https://t.me/userinfobot) — your numeric id. Everyone else is ignored. |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) — the brain |
 | `DATABASE_URL` | Neon, Supabase, or local Postgres with `CREATE EXTENSION vector` |
 | `VOYAGE_API_KEY` | [voyageai.com](https://www.voyageai.com) — embeddings |
 | `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) — Whisper transcription |
@@ -86,13 +105,19 @@ on every boot before the HTTP server starts.
 src/
 ├── config.ts          env parsing, fails loudly on a missing credential
 ├── bot/               grammY handlers — the whole write path
+├── agent/
+│   ├── client.ts      Anthropic client + per-call cost accounting
+│   ├── classify.ts    structured-output routing into rooms
+│   ├── prompt.ts      system prompt; stable block cached, clock kept out of it
+│   ├── tools.ts       the tool belt
+│   └── run.ts         the tool-runner loop, incl. pause_turn resume
 ├── memory/
 │   ├── capture.ts     the one INSERT
 │   ├── chunk.ts       sentence-aware splitting
 │   ├── embed.ts       Voyage
 │   ├── index.ts       chunk + embed + store
 │   └── recall.ts      hybrid search, reciprocal rank fusion
-├── jobs/              pg-boss queue and the enrichment worker
+├── jobs/              pg-boss queues, enrichment worker, briefs and cron
 ├── integrations/      transcription, Telegram file download
 ├── db/                pool, helpers, migration
 └── web/               Fastify — health and the Telegram webhook
@@ -112,10 +137,10 @@ Seeded in `contexts` on first migration; Phase 1 classifies every capture into o
 
 ## Next
 
-**Phase 1 — the brain.** The Opus 5 tool loop, classification into rooms, tasks and
-reminders with natural-language time parsing, web research, and the 06:30 morning brief.
-Everything else is built on it.
+**The study planner**, and the console shell it brings with it — a study plan is a calendar
+and a checklist, which is a screen rather than a chat message. There is a bank project with
+a real deadline, so this one is next.
 
-Then the study planner (there is a bank project with a real deadline), then the finance
-ledger, then the console. Full reasoning and the rest of the order in
-[docs/MODULES.md](docs/MODULES.md).
+Then the finance ledger, then importing the Raspberry Pi farm manager. Why the console is
+not optional, and why the Pi keeps its printers, is in
+[docs/INTERFACE.md](docs/INTERFACE.md).
