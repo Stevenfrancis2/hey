@@ -6,6 +6,8 @@ import { listWatchlist } from "../memory/watchlist.js";
 import { listReminders } from "../memory/reminders.js";
 import { recall, recent } from "../memory/recall.js";
 import { findGoal, listTopics, progress, dueCards, listMaterials } from "../memory/study.js";
+import { summary as moneySummary, outstanding, affordability, recentEntries, listBills,
+         money, fromMinor } from "../memory/money.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -277,5 +279,66 @@ ${materials.length ? `<h2>Material</h2>${materials.map((m) => `
 <div class="card"><div class="row"><h3>${escapeHtml(m.title)}</h3>
 <span class="tag">${m.kind}</span></div>
 ${m.url ? `<p>${escapeHtml(m.url)}</p>` : ""}</div>`).join("")}` : ""}
+`);
+}
+
+
+export async function moneyPage(): Promise<string> {
+  const [all, month, owed, afford, entries, bills] = await Promise.all([
+    moneySummary({}), moneySummary({ days: 30 }), outstanding(),
+    affordability("USD"), recentEntries(25), listBills(),
+  ]);
+
+  const owedToHim = owed.filter((o) => o.direction === "in");
+  const owedByHim = owed.filter((o) => o.direction === "out");
+
+  return page("Money", "/money", `
+<h1>Money</h1>
+<p class="muted">One book per business, one view across all of them. Amounts owed to you are
+shown but never counted as available — it isn't yours until it lands.</p>
+
+<div class="grid">
+  <div class="card"><div class="row"><h3>Free to spend</h3>
+    <span class="tag${afford.freeMinor < 0 ? " due" : " ok"}">${money(afford.freeMinor)}</span></div>
+    <p>cash minus what you owe and monthly bills</p></div>
+  <div class="card"><div class="row"><h3>Cash</h3><span class="tag">${money(afford.cashMinor)}</span></div>
+    <p>settled, USD</p></div>
+  <div class="card"><div class="row"><h3>Owed to you</h3>
+    <span class="tag">${money(afford.owedToHimMinor)}</span></div>
+    <p>${owedToHim.length} outstanding</p></div>
+  <div class="card"><div class="row"><h3>You owe</h3>
+    <span class="tag${afford.owedByHimMinor > 0 ? " due" : ""}">${money(afford.owedByHimMinor)}</span></div>
+    <p>${owedByHim.length} outstanding · ${money(afford.monthlyBillsMinor)}/mo bills</p></div>
+</div>
+
+<h2>By business</h2>
+${all.length === 0 ? '<p class="empty">Nothing recorded yet. Tell the bot: "sold 3 housings for 450".</p>' : ""}
+${all.map((r) => {
+  const m = month.find((x) => x.context_key === r.context_key && x.currency === r.currency);
+  return `<div class="card"><div class="row">
+<h3>${escapeHtml(r.context_key ?? "unfiled")} <span class="tag">${r.currency}</span></h3>
+<span class="tag${Number(r.net_minor) < 0 ? " due" : " ok"}">${money(r.net_minor, r.currency)}</span></div>
+<p>in ${money(r.in_minor, r.currency)} · out ${money(r.out_minor, r.currency)}${
+    m ? ` · last 30d net ${money(m.net_minor, r.currency)}` : ""}</p></div>`;
+}).join("")}
+
+${owed.length ? `<h2>Outstanding</h2>${owed.map((o) => `
+<div class="card"><div class="row">
+<h3>${escapeHtml(o.counterparty ?? o.note ?? "—")}</h3>
+<span class="tag${o.direction === "out" ? " due" : ""}">${o.direction === "in" ? "owed to you" : "you owe"} ${money(o.amount_minor, o.currency)}</span></div>
+<p>${o.due_on ? `due ${new Date(o.due_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : "no date"}${
+  o.context_key ? ` · ${escapeHtml(o.context_key)}` : ""}</p></div>`).join("")}` : ""}
+
+${bills.length ? `<h2>Monthly bills</h2>${bills.map((b) => `
+<div class="card"><div class="row"><h3>${escapeHtml(b.name)}</h3>
+<span class="tag">${money(b.amount_minor, b.currency)}</span></div>
+<p>day ${b.day_of_month}</p></div>`).join("")}` : ""}
+
+<h2>Recent</h2>
+${entries.length === 0 ? '<p class="empty">Nothing yet.</p>' : entries.map((e) => `
+<div class="hit"><time>${new Date(e.occurred_on).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${
+  e.context_key ? ` · ${escapeHtml(e.context_key)}` : ""}${e.settled ? "" : " · UNSETTLED"}</time>
+${e.direction === "in" ? "+" : "−"}${money(e.amount_minor, e.currency).replace("-", "")}${
+  e.counterparty ? ` · ${escapeHtml(e.counterparty)}` : ""}${e.note ? ` — ${escapeHtml(e.note)}` : ""}</div>`).join("")}
 `);
 }

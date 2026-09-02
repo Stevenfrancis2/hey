@@ -410,4 +410,40 @@ CREATE TABLE IF NOT EXISTS study_cards (
 );
 CREATE INDEX IF NOT EXISTS study_cards_due_idx ON study_cards (due_at) WHERE reps >= 0;
 
+-- ─────────────────────────────────────────────────────────────
+-- MONEY — one book per business, one view across all of them.
+-- Amounts are stored in minor units (piastres/cents) as bigint:
+-- floating point must never touch money.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ledger (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  context_id   uuid REFERENCES contexts(id),      -- which business
+  project_id   uuid REFERENCES projects(id),
+  direction    text NOT NULL CHECK (direction IN ('in','out')),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency     text NOT NULL DEFAULT 'USD',
+  counterparty text,
+  category     text,          -- sale|purchase|salary|bill|fee|transfer|other
+  note         text,
+  occurred_on  date NOT NULL DEFAULT current_date,
+  settled      boolean NOT NULL DEFAULT true,     -- false = owed, either way
+  due_on       date,
+  capture_id   uuid REFERENCES captures(id),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ledger_when_idx    ON ledger (occurred_on DESC);
+CREATE INDEX IF NOT EXISTS ledger_ctx_idx     ON ledger (context_id, occurred_on DESC);
+CREATE INDEX IF NOT EXISTS ledger_pending_idx ON ledger (settled, due_on) WHERE settled = false;
+
+-- Recurring outgoings, so "what can I afford" knows what is already committed.
+CREATE TABLE IF NOT EXISTS bills (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name         text NOT NULL UNIQUE,
+  context_id   uuid REFERENCES contexts(id),
+  amount_minor bigint NOT NULL CHECK (amount_minor > 0),
+  currency     text NOT NULL DEFAULT 'USD',
+  day_of_month smallint NOT NULL DEFAULT 1,
+  active       boolean NOT NULL DEFAULT true
+);
+
 -- pg-boss creates and owns its own schema in this same database.

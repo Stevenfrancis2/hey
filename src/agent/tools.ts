@@ -8,6 +8,10 @@ import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/wa
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
 import {
+  record as recordMoney, summary as moneySummary, outstanding, settle,
+  recentEntries, affordability, addBill, listBills, money, fromMinor,
+} from "../memory/money.js";
+import {
   createGoal, findGoal, setTopics, listTopics, completeTopic, addMaterial, listMaterials,
   logSession, progress, addCard, dueCards, gradeCard,
 } from "../memory/study.js";
@@ -252,6 +256,143 @@ export const removeWatchTool = betaZodTool({
   run: async ({ name }) => {
     const item = await removeFromWatchlist(name);
     return item ? `Stopped watching ${item.name}.` : `Nothing on the watchlist matching "${name}".`;
+  },
+});
+
+// ── money ─────────────────────────────────────────────────
+export const recordMoneyTool = betaZodTool({
+  name: "record_money",
+  description:
+    "Record money in or out for any business. He reports casually — 'we sold 3 housings to " +
+    "the retail store for 450', 'bought filament for 120' — so extract the amount, direction, " +
+    "which business, and who it was with. If it has not actually been paid yet, set settled " +
+    "false and a due date: that is what turns 'they owe me' into something that chases itself.",
+  inputSchema: z.object({
+    direction: z.enum(["in", "out"]),
+    amount: z.number().positive(),
+    currency: z.string().optional().describe("USD default; LBP also common for him"),
+    context: ContextKey.optional().describe("Which business this belongs to"),
+    counterparty: z.string().optional().describe("Who it was with"),
+    category: z.enum(["sale","purchase","salary","bill","fee","transfer","other"]).optional(),
+    note: z.string().optional(),
+    occurred_on: z.string().optional().describe("ISO date; defaults to today"),
+    settled: z.boolean().optional().describe("False if not yet actually paid"),
+    due_on: z.string().optional().describe("ISO date, when unsettled"),
+  }),
+  run: async (input) => {
+    const entry = await recordMoney({
+      direction: input.direction, amount: input.amount, currency: input.currency ?? "USD",
+      contextKey: input.context ?? null, counterparty: input.counterparty ?? null,
+      category: input.category ?? null, note: input.note ?? null,
+      occurredOn: input.occurred_on ? new Date(input.occurred_on) : null,
+      settled: input.settled ?? true,
+      dueOn: input.due_on ? new Date(input.due_on) : null,
+    });
+    return `${input.direction === "in" ? "In" : "Out"} ${money(entry.amount_minor, entry.currency)}` +
+      `${entry.counterparty ? ` · ${entry.counterparty}` : ""}` +
+      `${entry.context_key ? ` · ${entry.context_key}` : ""}` +
+      `${entry.settled ? "" : " · NOT yet settled"}.`;
+  },
+});
+
+export const moneySummaryTool = betaZodTool({
+  name: "money_summary",
+  description:
+    "In, out and net per business over a period. Use for any question about how a business " +
+    "is doing, what was spent, or what came in.",
+  inputSchema: z.object({
+    days: z.number().int().min(1).max(3650).optional().describe("Defaults to all time"),
+    context: ContextKey.optional(),
+  }),
+  run: async (input) => {
+    const rows = await moneySummary({ days: input.days, contextKey: input.context ?? null });
+    if (rows.length === 0) return "No settled entries yet.";
+    return rows.map((r) =>
+      `${(r.context_key ?? "unfiled").padEnd(12)} in ${money(r.in_minor, r.currency)}` +
+      ` · out ${money(r.out_minor, r.currency)} · net ${money(r.net_minor, r.currency)}`
+    ).join("\n");
+  },
+});
+
+export const affordTool = betaZodTool({
+  name: "can_i_afford",
+  description:
+    "Answer whether he can afford something, against real numbers. Money owed TO him is " +
+    "reported but deliberately not counted as available — it is not his until it lands, and " +
+    "treating it as spendable is how people get caught short. Be straight about the gap.",
+  inputSchema: z.object({
+    amount: z.number().positive().optional().describe("What he wants to spend"),
+    currency: z.string().optional(),
+  }),
+  run: async ({ amount, currency }) => {
+    const cur = currency ?? "USD";
+    const a = await affordability(cur);
+    const lines = [
+      `Cash (settled):      ${money(a.cashMinor, cur)}`,
+      `Owed to him:         ${money(a.owedToHimMinor, cur)}  (not counted below)`,
+      `Owed by him:         ${money(a.owedByHimMinor, cur)}`,
+      `Monthly bills:       ${money(a.monthlyBillsMinor, cur)}`,
+      `Free to spend:       ${money(a.freeMinor, cur)}`,
+    ];
+    if (amount !== undefined) {
+      const want = Math.round(amount * 100);
+      const after = a.freeMinor - want;
+      lines.push(
+        "",
+        after >= 0
+          ? `Yes — ${money(want, cur)} leaves ${money(after, cur)}.`
+          : `No — short by ${money(-after, cur)}.` +
+            (a.owedToHimMinor >= -after
+              ? ` It works only once the ${money(a.owedToHimMinor, cur)} owed to him lands.`
+              : ""),
+      );
+    }
+    return lines.join("\n");
+  },
+});
+
+export const outstandingTool = betaZodTool({
+  name: "outstanding_money",
+  description: "Everything unsettled — what he is owed and what he owes.",
+  inputSchema: z.object({}),
+  run: async () => {
+    const rows = await outstanding();
+    if (rows.length === 0) return "Nothing outstanding.";
+    return rows.map((r) =>
+      `${r.direction === "in" ? "OWED TO HIM" : "HE OWES   "} ${money(r.amount_minor, r.currency)}` +
+      `${r.counterparty ? ` · ${r.counterparty}` : ""}` +
+      `${r.due_on ? ` · due ${new Date(r.due_on).toISOString().slice(0,10)}` : ""}`
+    ).join("\n");
+  },
+});
+
+export const settleTool = betaZodTool({
+  name: "settle_money",
+  description: "Mark an outstanding amount as actually paid. Matches on counterparty or note.",
+  inputSchema: z.object({ match: z.string() }),
+  run: async ({ match }) => {
+    const entry = await settle(match);
+    return entry
+      ? `Settled ${money(entry.amount_minor, entry.currency)}${entry.counterparty ? ` from ${entry.counterparty}` : ""}.`
+      : `Nothing outstanding matching "${match}".`;
+  },
+});
+
+export const billTool = betaZodTool({
+  name: "add_bill",
+  description: "Record a recurring monthly outgoing, so affordability knows what is committed.",
+  inputSchema: z.object({
+    name: z.string(), amount: z.number().positive(),
+    currency: z.string().optional(),
+    day_of_month: z.number().int().min(1).max(31).optional(),
+    context: ContextKey.optional(),
+  }),
+  run: async (input) => {
+    await addBill({ name: input.name, amount: input.amount, currency: input.currency ?? "USD",
+                    dayOfMonth: input.day_of_month ?? 1, contextKey: input.context ?? null });
+    const bills = await listBills();
+    const total = bills.reduce((sum, b) => sum + fromMinor(b.amount_minor), 0);
+    return `Recorded. ${bills.length} bills totalling ${money(Math.round(total * 100))}/month.`;
   },
 });
 
@@ -525,6 +666,12 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  recordMoneyTool,
+  moneySummaryTool,
+  affordTool,
+  outstandingTool,
+  settleTool,
+  billTool,
   setStudyPlanTool,
   studyStatusTool,
   logStudyTool,

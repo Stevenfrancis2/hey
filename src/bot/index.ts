@@ -13,6 +13,7 @@ import { issueLoginToken } from "../web/auth.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
 import { listGear } from "../memory/gear.js";
 import { findGoal, listTopics, progress, dueCards } from "../memory/study.js";
+import { summary as moneySummary, outstanding, affordability, money } from "../memory/money.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -94,6 +95,7 @@ bot.command("start", async (ctx) => {
       "I keep everything, and I answer when you actually asked.",
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/money</b> — the books, and what you can spend",
       "<b>/study</b> — the plan, and whether you're on track",
       "<b>/fly</b> — can I fly, per quad",
       "<b>/gear</b> — the fleet",
@@ -111,8 +113,32 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/study · /fly · /gear · /recall <query> · /tasks · /projects · /brief · /export · /login · /costs"),
+  ctx.reply("/money · /study · /fly · /gear · /recall <q> · /tasks · /projects · /brief · /export · /login"),
 );
+
+bot.command("money", async (ctx) => {
+  const [rows, owed, afford] = await Promise.all([
+    moneySummary({}), outstanding(), affordability("USD"),
+  ]);
+  if (rows.length === 0) {
+    await ctx.reply('Nothing recorded yet. Just tell me: "sold 3 housings to the retail store for 450".');
+    return;
+  }
+  await ctx.reply(
+    [
+      `<b>Free to spend  ${money(afford.freeMinor)}</b>`,
+      `cash ${money(afford.cashMinor)} · you owe ${money(afford.owedByHimMinor)} · bills ${money(afford.monthlyBillsMinor)}/mo`,
+      afford.owedToHimMinor > 0
+        ? `owed to you ${money(afford.owedToHimMinor)} <i>(not counted)</i>` : "",
+      "",
+      ...rows.map((r) =>
+        `<b>${escapeHtml(r.context_key ?? "unfiled")}</b> ${money(r.net_minor, r.currency)}` +
+        `  <i>in ${money(r.in_minor, r.currency)} · out ${money(r.out_minor, r.currency)}</i>`),
+      owed.length ? `\n${owed.length} outstanding — /login to see them` : "",
+    ].filter(Boolean).join("\n"),
+    { parse_mode: "HTML" },
+  );
+});
 
 bot.command("study", async (ctx) => {
   const goal = await findGoal(null);
