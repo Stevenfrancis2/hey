@@ -297,17 +297,23 @@ A(PageBreak())
 # ── 7. BUILT ────────────────────────────────────────────────
 A(P("7 · What's built and working", h1))
 A(box([
-    ["Phase", "What", "State"],
-    ["0", "Capture loop — text, voice, photo, document, forwards.\nInstant reaction ack, Whisper transcription, hybrid search.", "Built"],
-    ["1", "The brain — nine rooms, Opus 5 with adaptive thinking,\ntasks, reminders, hosted web search, daily + weekly briefs.", "Built"],
-    ["1b", "Archive — nightly Markdown + JSON over Telegram, /export.", "Built"],
-    ["1c", "Projects with deadlines. Watchlist with thesis.", "Built"],
-    ["1d", "The console — every device, PWA, magic-link login.", "Built"],
-    ["1e", "Fleet registry and per-aircraft flyability.", "Built"],
-    ["2", "Study planner", "Next"],
-    ["3", "Finance ledger", "After"],
-    ["4", "Pi farm-manager sync", "After"],
-], [14*mm, 100*mm, 34*mm]))
+    ["What", "State"],
+    ["Capture — text, voice, photo, document, forwards. Reaction ack in under\ntwo seconds, Whisper transcription, forwarded messages attributed.", "Built"],
+    ["The brain — nine rooms, Claude Opus 5 with adaptive thinking, 43 tools,\nhosted web search, daily and weekly briefs.", "Built"],
+    ["Archive — plain-text Markdown + JSON, nightly over Telegram and /export.", "Built"],
+    ["Projects with deadlines. Watchlist that stores the thesis.", "Built"],
+    ["The console — twelve pages, every device, installable, magic-link login.", "Built"],
+    ["Fleet registry and per-aircraft flyability from wind, gusts and daylight.", "Built"],
+    ["Study planner — prerequisite ordering, hours-needed maths, SM-2 review.", "Built"],
+    ["Finance ledger — one book per business, receivables, can-I-afford.", "Built"],
+    ["Research desk — six standing topics, told what changed since last time.", "Built"],
+    ["Automation scout — monthly, finds work done by hand and proposes fixes.", "Built"],
+    ["Decision dossier — options with payback, assumptions written as such.", "Built"],
+    ["Body — training, weight, calories.", "Built"],
+    ["Pi farm-manager sync", "Needs his code"],
+    ["Google Drive and Calendar", "Needs OAuth"],
+    ["Instagram Ads", "Needs approval"],
+], [116*mm, 32*mm]))
 
 A(P("The design rule everything follows", h2))
 A(P("<b>The write path is dumb and instant. The read path is smart and slow.</b> A message is one "
@@ -320,14 +326,15 @@ A(P("And: he never chooses between noting something and asking something. Everyt
 A(P("Commands", h2))
 A(box([
     ["Command", "Does"],
-    ["/fly", "Can I fly — per quad, with windows"],
-    ["/gear", "The fleet"],
+    ["/money", "The books, and what's actually free to spend"],
+    ["/study", "The plan, and whether he's on track"],
+    ["/fly    /gear", "Can I fly, per quad; the fleet"],
+    ["/body   /land", "Training and food; the 600 sqm dossier"],
+    ["/desk   /scout", "Run the research desk; find automations"],
     ["/recall <query>", "Search everything ever said"],
     ["/tasks  /projects", "What's open; deadlines"],
-    ["/brief", "Today's brief now"],
-    ["/export", "Everything as files, right now"],
-    ["/login", "Open the console on this device"],
-    ["/costs", "What it's spending"],
+    ["/brief  /export", "Today's brief; everything as files"],
+    ["/login  /costs", "Open the console here; what it's spending"],
 ], [36*mm, 112*mm]))
 
 A(P("8 · Still open", h1))
@@ -397,6 +404,9 @@ msgs = [
   "wasnt me to poen it in vscode and claude code ther and continue or hereis good? if yes guide me what "
   "do you weqant m,e to do and i insinst on the pdf having all the chat io sent i want them organized so "
   "wehenevr i ned to build or somehtign happen no need to repeat my self"),
+ ("Message 8 — build everything",
+  "you built eveyrhting keep building until you run out of crtedits bro i wan tevreythign built "
+  "aftye tthta we put our credits"),
 ]
 for h, m in msgs:
     A(KeepTogether([P(h, h3), Q(m.replace("&", "&amp;").replace("<", "&lt;"))]))
