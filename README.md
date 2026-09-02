@@ -100,6 +100,7 @@ npm run dev               # long-polling
 | `VOYAGE_API_KEY` | [voyageai.com](https://www.voyageai.com) — embeddings |
 | `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) — Whisper |
 | `LATITUDE` / `LONGITUDE` | Where you fly. Defaults to Beirut. Weather needs no key. |
+| `SESSION_SECRET` | Signs console logins. **Required in production**, and must differ from the webhook secret — that one is handed to Telegram. |
 
 Setting `PUBLIC_URL` switches from long-polling to webhooks and enables `/login`.
 
@@ -108,6 +109,7 @@ fly launch --no-deploy
 fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_OWNER_ID=... DATABASE_URL=... \
                 ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... GROQ_API_KEY=... \
                 TELEGRAM_WEBHOOK_SECRET="$(openssl rand -hex 16)" \
+                SESSION_SECRET="$(openssl rand -hex 32)" \
                 PUBLIC_URL=https://<app>.fly.dev
 fly deploy
 ```

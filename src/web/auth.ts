@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { config } from "../config.js";
 
-const SECRET = config.telegram.webhookSecret;
+const SECRET = config.sessionSecret;
 const SESSION_DAYS = 90;
 
 /**

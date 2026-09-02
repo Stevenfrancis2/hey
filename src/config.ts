@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomBytes } from "node:crypto";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -25,6 +26,27 @@ export const config = {
     ownerId: Number(required("TELEGRAM_OWNER_ID")),
     webhookSecret: optional("TELEGRAM_WEBHOOK_SECRET", "sven-local-secret"),
   },
+
+  /**
+   * Signs console session cookies. Deliberately NOT the Telegram webhook secret:
+   * that one is handed to Telegram, so anyone holding it could mint sessions and
+   * read the finance room. Different trust domain, different key.
+   *
+   * In production it must be set explicitly — a default would let anyone who has
+   * read this repository forge a session. In development a random per-boot value
+   * is fine; it just means a restart signs you out.
+   */
+  sessionSecret: (() => {
+    const provided = process.env.SESSION_SECRET;
+    if (provided && provided.length >= 16) return provided;
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "SESSION_SECRET must be set to at least 16 characters in production. " +
+          "Generate one with: openssl rand -hex 32",
+      );
+    }
+    return randomBytes(32).toString("hex");
+  })(),
 
   /** Open-Meteo needs coordinates. Defaults to Beirut. */
   location: {
