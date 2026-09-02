@@ -1,5 +1,6 @@
 import { query, toVector } from "../db/index.js";
 import { embedOne } from "./embed.js";
+import { log } from "../log.js";
 
 export type Hit = {
   capture_id: string;
@@ -18,14 +19,22 @@ const RRF_K = 60;
  * fusion merges them without needing the two scores to be commensurable.
  */
 export async function recall(question: string, limit = 8): Promise<Hit[]> {
-  const vector = toVector(await embedOne(question, "query"));
+  // If the embedding provider is unreachable — which in Lebanon is a normal
+  // Tuesday — answering from full text alone is far better than answering
+  // nothing. The exact part number he typed once is still findable.
+  let vector: string | null = null;
+  try {
+    vector = toVector(await embedOne(question, "query"));
+  } catch (err) {
+    log.warn({ err }, "embedding unavailable; falling back to full-text recall");
+  }
 
   return query<Hit>(
     `WITH semantic AS (
        SELECT c.id,
               row_number() OVER (ORDER BY c.embedding <=> $1::vector) AS rank
        FROM chunks c
-       WHERE c.embedding IS NOT NULL
+       WHERE $1::vector IS NOT NULL AND c.embedding IS NOT NULL
        ORDER BY c.embedding <=> $1::vector
        LIMIT $3
      ),
