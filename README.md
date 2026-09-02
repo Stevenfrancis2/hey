@@ -18,7 +18,7 @@ life into one graph, then works for you while you're doing something else.
 | **Voice** | Transcribed and replied back, so a misheard word is obvious immediately. |
 | **Attribution** | Forward your father's voice note and it's stored as *his* words, searchable that way. |
 | **Understanding** | Every capture classified into one of nine rooms, with intent and urgency. |
-| **The agent** | Claude Opus 5, adaptive thinking, 43 tools, hosted web search. |
+| **The agent** | Claude Opus 5, adaptive thinking, 46 tools, hosted web search. |
 | **Search** | Hybrid vector + full-text with reciprocal rank fusion. |
 | **Tasks** | Created from what you say, closed by loose title match. |
 | **Projects** | Deadlines, clients, overdue counts, across every room. |
@@ -134,7 +134,7 @@ Then send `/login` and open the link on whichever device you're holding.
 ```
 src/
 ├── bot/         grammY handlers — the write path
-├── agent/       prompt, classifier, 43 tools, the tool-runner loop
+├── agent/       prompt, classifier, 46 tools, the tool-runner loop
 ├── memory/      capture · chunk · embed · recall · tasks · reminders · projects
 │                watchlist · gear · study · money · decisions · body · research
 ├── jobs/        pg-boss queues, enrichment, briefs, archive, desk, scout
