@@ -24,18 +24,30 @@ function stamp(d: Date | string): string {
   return new Date(d).toISOString().replace("T", " ").slice(0, 16);
 }
 
+/**
+ * A capture with no text still has to appear. A voice note whose transcription
+ * failed used to be filtered out of the readable archive entirely — the file said
+ * nothing was there, which is worse than saying the words were lost.
+ */
+function bodyOf(c: Row): string {
+  const text = (c.raw_text as string | null) ?? "";
+  if (text.trim()) return text;
+  const kind = (c.kind as string) ?? "capture";
+  const why = c.error ? `: ${c.error}` : c.status === "pending" ? ", not yet processed" : "";
+  return `_[${kind} with no text${why}]_`;
+}
+
 export async function buildMarkdown(): Promise<string> {
   const generatedAt = new Date().toISOString();
 
   const [profile, captures, tasks, reminders, projects, watch, convo, rooms] = await Promise.all([
     loadProfile(),
     query<Row>(
-      `SELECT c.captured_at, c.kind, c.raw_text,
+      `SELECT c.captured_at, c.kind, c.raw_text, c.status, c.error,
               ctx.key AS room, e.intent, e.summary, e.tags
        FROM captures c
        LEFT JOIN capture_enrichment e ON e.capture_id = c.id
        LEFT JOIN contexts ctx ON ctx.id = e.context_id
-       WHERE c.raw_text IS NOT NULL AND length(trim(c.raw_text)) > 0
        ORDER BY c.captured_at ASC`,
     ),
     query<Row>(
@@ -134,7 +146,7 @@ A machine-readable copy of the same data ships alongside it as JSON.`);
     for (const c of items) {
       out.push(
         `**${stamp(c.captured_at as string)}**${c.kind === "voice" ? " 🎙" : ""}` +
-          `${c.intent ? ` · ${c.intent}` : ""}\n\n${c.raw_text}\n`,
+          `${c.intent ? ` · ${c.intent}` : ""}\n\n${bodyOf(c)}\n`,
       );
     }
   }
@@ -148,7 +160,7 @@ A machine-readable copy of the same data ships alongside it as JSON.`);
   for (const [d, items] of [...byDay.entries()].sort()) {
     out.push(`\n### ${d}\n`);
     for (const c of items) {
-      out.push(`- \`${stamp(c.captured_at as string).slice(11)}\` ${c.summary ?? c.raw_text}`);
+      out.push(`- \`${stamp(c.captured_at as string).slice(11)}\` ${c.summary ?? bodyOf(c)}`);
     }
   }
 
@@ -170,38 +182,43 @@ A machine-readable copy of the same data ships alongside it as JSON.`);
   return out.join("\n");
 }
 
-/** The same data, machine-restorable. Markdown is for you; this is for a rebuild. */
+/**
+ * Never leaves the database.
+ *
+ * `oauth_tokens` holds live Google refresh tokens and this file is delivered over
+ * Telegram — archiving it would post working credentials into a chat. The other two
+ * are bookkeeping about the system rather than anything of his.
+ */
+const NEVER_ARCHIVE = new Set(["oauth_tokens", "llm_calls", "archive_runs"]);
+
+/**
+ * The same data, machine-restorable. Markdown is for you; this is for a rebuild.
+ *
+ * The table list is read from the database rather than hand-maintained. It used to
+ * be a literal array, which had silently fallen 22 tables behind the schema — the
+ * ledger, every study table, gear, decisions and the dough log were all absent from
+ * the one file that is supposed to guarantee nothing is trapped. A new table now
+ * joins the archive by existing.
+ */
 export async function buildJson(): Promise<string> {
-  const tables = [
-    "contexts",
-    "captures",
-    "capture_enrichment",
-    "chunks",
-    "entities",
-    "edges",
-    "tasks",
-    "reminders",
-    "projects",
-    "watchlist",
-    "profile_docs",
-    "threads",
-    "messages",
-    "briefs",
-  ];
+  const tableRows = await query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+     ORDER BY table_name`,
+  );
+  const tables = tableRows.map((r) => r.table_name).filter((t) => !NEVER_ARCHIVE.has(t));
 
   const dump: Record<string, unknown> = {
     generated_at: new Date().toISOString(),
     note: "Restorable dump. Embeddings are omitted — they are derived and can be rebuilt.",
+    tables: tables.length,
   };
 
   for (const table of tables) {
     // Embeddings are large and regenerable; leaving them out keeps this readable.
-    const columns =
-      table === "chunks" || table === "entities"
-        ? `to_jsonb(t) - 'embedding' AS row`
-        : `to_jsonb(t) AS row`;
+    // `jsonb - key` is a no-op on tables that have no embedding column.
     dump[table] = (
-      await query<{ row: unknown }>(`SELECT ${columns} FROM ${table} t`)
+      await query<{ row: unknown }>(`SELECT to_jsonb(t) - 'embedding' AS row FROM "${table}" t`)
     ).map((r) => r.row);
   }
 

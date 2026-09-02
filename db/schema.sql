@@ -274,6 +274,11 @@ CREATE INDEX IF NOT EXISTS projects_active_idx ON projects (status, deadline)
 -- Forwarded messages carry someone else's words. Attribute them.
 ALTER TABLE captures           ADD COLUMN IF NOT EXISTS author text;
 
+-- Cache writes bill at 1.25x the input rate. Without this column they were
+-- invisible, and the first message of every conversation — the expensive one —
+-- was reported as costing less than it does.
+ALTER TABLE llm_calls          ADD COLUMN IF NOT EXISTS cache_write integer;
+
 ALTER TABLE tasks              ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
 ALTER TABLE capture_enrichment ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
 CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks (project_id);

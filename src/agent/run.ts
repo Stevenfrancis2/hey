@@ -86,12 +86,14 @@ export async function respond(chatId: number, userText: string): Promise<string>
   let tokensIn = 0;
   let tokensOut = 0;
   let cacheRead = 0;
+  let cacheWrite = 0;
 
   for await (const message of runner) {
     final = message;
     tokensIn += message.usage.input_tokens ?? 0;
     tokensOut += message.usage.output_tokens ?? 0;
     cacheRead += message.usage.cache_read_input_tokens ?? 0;
+    cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
 
     // A server tool (web search) can pause the turn. The runner only resumes
     // after a *client* tool result, so without this the answer is silently
@@ -104,7 +106,12 @@ export async function respond(chatId: number, userText: string): Promise<string>
   await recordUsage(
     "chat",
     config.anthropic.model,
-    { input_tokens: tokensIn, output_tokens: tokensOut, cache_read_input_tokens: cacheRead },
+    {
+      input_tokens: tokensIn,
+      output_tokens: tokensOut,
+      cache_read_input_tokens: cacheRead,
+      cache_creation_input_tokens: cacheWrite,
+    },
     Date.now() - started,
   );
 
@@ -147,12 +154,14 @@ export async function generate(instruction: string, effort: "low" | "high" = "hi
   let tokensIn = 0;
   let tokensOut = 0;
   let cacheRead = 0;
+  let cacheWrite = 0;
 
   for await (const message of runner) {
     final = message;
     tokensIn += message.usage.input_tokens ?? 0;
     tokensOut += message.usage.output_tokens ?? 0;
     cacheRead += message.usage.cache_read_input_tokens ?? 0;
+    cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
     if (message.stop_reason === "pause_turn") {
       runner.pushMessages({ role: "assistant", content: message.content });
     }
@@ -161,7 +170,12 @@ export async function generate(instruction: string, effort: "low" | "high" = "hi
   await recordUsage(
     "brief",
     config.anthropic.model,
-    { input_tokens: tokensIn, output_tokens: tokensOut, cache_read_input_tokens: cacheRead },
+    {
+      input_tokens: tokensIn,
+      output_tokens: tokensOut,
+      cache_read_input_tokens: cacheRead,
+      cache_creation_input_tokens: cacheWrite,
+    },
     Date.now() - started,
   );
 

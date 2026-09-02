@@ -351,10 +351,17 @@ bot.command("brief", async (ctx) => {
 
 bot.command("costs", async (ctx) => {
   const costs = await costSummary();
+  // Cache reads as a share of all input tokens. If this sits near zero across
+  // several messages the cached prefix is being invalidated and the bill is
+  // roughly triple what it should be.
+  const totalIn = costs.freshIn + costs.cacheRead + costs.cacheWrite;
+  const hitRate = totalIn > 0 ? Math.round((costs.cacheRead / totalIn) * 100) : 0;
   await ctx.reply(
     [
       `today  <b>$${costs.today.toFixed(3)}</b> over ${costs.calls} calls`,
       `month  <b>$${costs.month.toFixed(2)}</b>`,
+      `cache  <b>${hitRate}%</b> of input served from cache`,
+      `       ${costs.cacheRead.toLocaleString()} read · ${costs.cacheWrite.toLocaleString()} written · ${costs.freshIn.toLocaleString()} fresh`,
     ].join("\n"),
     { parse_mode: "HTML" },
   );
@@ -401,7 +408,7 @@ bot.command("stats", async (ctx) => {
 
 // ── Capture ───────────────────────────────────────────────
 async function capture(
-  ctx: { message?: { message_id: number }; chat?: { id: number } },
+  ctx: Context,
   kind: CaptureKind,
   rawText: string | null,
   media?: { fileId: string; mime?: string; duration?: number },
@@ -411,16 +418,27 @@ async function capture(
   const chatId = ctx.chat?.id;
   if (messageId === undefined || chatId === undefined) return;
 
-  const id = await recordCapture({
-    telegramMessageId: messageId,
-    chatId,
-    kind,
-    rawText,
-    mediaFileId: media?.fileId ?? null,
-    mediaMime: media?.mime ?? null,
-    durationSeconds: media?.duration ?? null,
-    author: author ?? null,
-  });
+  let id: string;
+  try {
+    id = await recordCapture({
+      telegramMessageId: messageId,
+      chatId,
+      kind,
+      rawText,
+      mediaFileId: media?.fileId ?? null,
+      mediaMime: media?.mime ?? null,
+      durationSeconds: media?.duration ?? null,
+      author: author ?? null,
+    });
+  } catch (err) {
+    // He has already seen the 👌. Staying quiet here would be a silently dropped
+    // capture — the one failure this system cannot have. Tell him, so he can resend.
+    log.error({ err, kind, chatId, messageId }, "capture insert failed");
+    await ctx
+      .reply("⚠️ That didn't save — send it again.")
+      .catch((replyErr) => log.error({ err: replyErr }, "could not warn about lost capture"));
+    return;
+  }
 
   // Fire-and-forget: the acknowledgement must not wait on the queue.
   void enqueueEnrich(id).catch((err) => log.error({ err, id }, "enqueue failed"));
