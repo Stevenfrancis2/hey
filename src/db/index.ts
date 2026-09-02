@@ -1,3 +1,7 @@
+// Loaded here, not only in config.ts: `npm run migrate` never imports config,
+// so without this the documented setup step fails on a fresh checkout with a
+// perfectly good .env sitting next to it.
+import "dotenv/config";
 import pg from "pg";
 
 // Read the URL directly rather than through config, so `npm run migrate`
