@@ -17,8 +17,35 @@ import {
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
 import { respond } from "../agent/run.js";
+import {
+  consentUrl, exchangeCode, isConfigured as googleConfigured,
+  connectedAccount, disconnect, redirectUri,
+} from "../integrations/google.js";
+import { randomBytes } from "node:crypto";
 
-const OPEN_PATHS = new Set(["/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png"]);
+// The Google callback carries no session cookie (Google redirects the browser
+// there), so it is guarded by a one-time state value instead.
+const OPEN_PATHS = new Set([
+  "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png",
+  "/auth/google/callback",
+]);
+
+const googleStates = new Map<string, number>();
+
+export function issueGoogleState(): string {
+  const state = randomBytes(24).toString("base64url");
+  googleStates.set(state, Date.now() + 10 * 60_000);
+  for (const [key, expiry] of googleStates) if (expiry < Date.now()) googleStates.delete(key);
+  return state;
+}
+
+function redeemGoogleState(state: string | undefined): boolean {
+  if (!state) return false;
+  const expiry = googleStates.get(state);
+  if (expiry === undefined) return false;
+  googleStates.delete(state);
+  return expiry > Date.now();
+}
 
 // A flat teal square. Inlined so there is no asset pipeline for one icon.
 const ICON = Buffer.from(
@@ -68,6 +95,52 @@ export async function startServer() {
     reply.type("text/html").send(
       loginPage(token ? "That link is used or expired — send /login again." : "Send /login to the bot."),
     );
+  });
+
+  // ── Google connect ──────────────────────────────────────
+  app.get("/auth/google", async (_req, reply) => {
+    if (!googleConfigured()) {
+      reply.type("text/html").send(
+        loginPage("Google is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET first."),
+      );
+      return;
+    }
+    reply.redirect(consentUrl(issueGoogleState()));
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    "/auth/google/callback",
+    async (request, reply) => {
+      const { code, state, error } = request.query;
+      if (error) {
+        reply.type("text/html").send(loginPage(`Google returned: ${error}`));
+        return;
+      }
+      if (!redeemGoogleState(state)) {
+        reply.type("text/html").send(loginPage("That connect link is used or expired. Send /connect again."));
+        return;
+      }
+      if (!code) {
+        reply.type("text/html").send(loginPage("Google returned no authorisation code."));
+        return;
+      }
+      try {
+        await exchangeCode(code);
+        reply.type("text/html").send(
+          loginPage("Google connected. Drive and Calendar are live — you can close this tab."),
+        );
+      } catch (err) {
+        log.error({ err }, "google callback failed");
+        reply.type("text/html").send(
+          loginPage(err instanceof Error ? err.message : "Google connection failed."),
+        );
+      }
+    },
+  );
+
+  app.get("/auth/google/disconnect", async (_r, reply) => {
+    await disconnect();
+    reply.redirect("/");
   });
 
   app.get("/", async (_r, reply) => reply.type("text/html").send(await dashboard()));

@@ -561,4 +561,30 @@ CREATE TABLE IF NOT EXISTS body_log (
 );
 CREATE INDEX IF NOT EXISTS body_log_when_idx ON body_log (happened_on DESC, kind);
 
+-- ─────────────────────────────────────────────────────────────
+-- OAUTH — refresh tokens for Google. Stored server-side only;
+-- the console never puts one in a page or a cookie.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  provider      text PRIMARY KEY,          -- 'google'
+  refresh_token text NOT NULL,
+  scope         text,
+  account_email text,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Files pulled from Drive, so a document dropped in a folder is findable
+-- from a voice note. Tracks modifiedTime so a sync only does new work.
+CREATE TABLE IF NOT EXISTS drive_files (
+  id            text PRIMARY KEY,          -- Drive file id
+  name          text NOT NULL,
+  mime_type     text,
+  modified_time timestamptz,
+  web_link      text,
+  capture_id    uuid REFERENCES captures(id) ON DELETE SET NULL,
+  indexed_at    timestamptz NOT NULL DEFAULT now(),
+  error         text
+);
+CREATE INDEX IF NOT EXISTS drive_files_modified_idx ON drive_files (modified_time DESC);
+
 -- pg-boss creates and owns its own schema in this same database.

@@ -48,6 +48,13 @@ export const config = {
     return randomBytes(32).toString("hex");
   })(),
 
+  /** Google Drive and Calendar. Optional — everything else works without them. */
+  google: {
+    clientId: optional("GOOGLE_CLIENT_ID", ""),
+    clientSecret: optional("GOOGLE_CLIENT_SECRET", ""),
+    driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || null,
+  },
+
   /** Open-Meteo needs coordinates. Defaults to Beirut. */
   location: {
     latitude: Number(optional("LATITUDE", "33.8938")),

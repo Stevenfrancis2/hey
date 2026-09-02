@@ -6,6 +6,7 @@ import { enrichCapture } from "./enrich.js";
 import { fireDueReminders, sendBrief } from "./brief.js";
 import { runArchive } from "./archive.js";
 import { runResearch, runScout } from "./research.js";
+import { syncDrive } from "./drive.js";
 import { config } from "../config.js";
 
 export const ENRICH_QUEUE = "capture.enrich";
@@ -17,6 +18,7 @@ const SWEEP_QUEUE = "capture.sweep";
 const DESK_DAILY_QUEUE = "research.daily";
 const DESK_WEEKLY_QUEUE = "research.weekly";
 const SCOUT_QUEUE = "automation.scout";
+const DRIVE_QUEUE = "drive.sync";
 
 export type EnrichJob = { captureId: string };
 
@@ -47,7 +49,7 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   const chatId = config.telegram.ownerId;
 
   for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE,
-                      DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE]) {
+                      DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE, DRIVE_QUEUE]) {
     await instance.createQueue(name);
   }
 
@@ -72,6 +74,9 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   });
   await instance.work(SCOUT_QUEUE, { batchSize: 1 }, async () => {
     await runScout(api, chatId);
+  });
+  await instance.work(DRIVE_QUEUE, { batchSize: 1 }, async () => {
+    await syncDrive();
   });
 
   // A capture is written before it is enqueued. If the process dies in between,
@@ -98,6 +103,7 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(DESK_DAILY_QUEUE, "0 8 * * *", {}, tz);
   await instance.schedule(DESK_WEEKLY_QUEUE, "0 17 * * 6", {}, tz);
   await instance.schedule(SCOUT_QUEUE, "0 19 1 * *", {}, tz);
+  await instance.schedule(DRIVE_QUEUE, "0 2 * * *", {}, tz);
 
   boss = instance;
   log.info({ timezone: config.timezone }, "job runner started");

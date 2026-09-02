@@ -18,6 +18,10 @@ import {
 } from "../memory/research.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
 import {
+  listEvents, createEvent, freeSlots, searchDrive, readDriveFile,
+  isConfigured as googleConfigured, connectedAccount,
+} from "../integrations/google.js";
+import {
   record as recordMoney, summary as moneySummary, outstanding, settle,
   recentEntries, affordability, addBill, listBills, money, fromMinor,
 } from "../memory/money.js";
@@ -266,6 +270,132 @@ export const removeWatchTool = betaZodTool({
   run: async ({ name }) => {
     const item = await removeFromWatchlist(name);
     return item ? `Stopped watching ${item.name}.` : `Nothing on the watchlist matching "${name}".`;
+  },
+});
+
+// ── calendar and drive ────────────────────────────────────
+function whenLocal(d: Date): string {
+  return d.toLocaleString("en-GB", {
+    weekday: "short", day: "numeric", month: "short",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
+
+async function requireGoogle(): Promise<string | null> {
+  if (!googleConfigured()) {
+    return "Google is not set up — GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not configured.";
+  }
+  if (!(await connectedAccount())) {
+    return "Google is configured but not connected yet. Tell him to send /connect in Telegram.";
+  }
+  return null;
+}
+
+export const listEventsTool = betaZodTool({
+  name: "list_events",
+  description: "Steven's calendar. Check this before suggesting a time for anything.",
+  inputSchema: z.object({
+    days: z.number().int().min(1).max(60).optional().describe("How far ahead; default 7"),
+  }),
+  run: async ({ days }) => {
+    const problem = await requireGoogle();
+    if (problem) return problem;
+    try {
+      const events = await listEvents({ to: new Date(Date.now() + (days ?? 7) * 864e5) });
+      if (events.length === 0) return "Nothing in the calendar for that window.";
+      return events.map((e) => {
+        const start = e.start.dateTime ? whenLocal(new Date(e.start.dateTime)) : e.start.date;
+        return `- ${start} · ${e.summary ?? "(no title)"}${e.location ? ` · ${e.location}` : ""}`;
+      }).join("\n");
+    } catch (err) {
+      return `Calendar unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+});
+
+export const createEventTool = betaZodTool({
+  name: "create_event",
+  description:
+    "Put something in his calendar. This is an outward action — confirm with him before " +
+    "creating anything involving other people, and never invent attendees.",
+  inputSchema: z.object({
+    summary: z.string(),
+    start: z.string().describe("Absolute ISO 8601 with offset"),
+    end: z.string().describe("Absolute ISO 8601 with offset"),
+    description: z.string().optional(),
+    location: z.string().optional(),
+  }),
+  run: async (input) => {
+    const problem = await requireGoogle();
+    if (problem) return problem;
+    const start = new Date(input.start);
+    const end = new Date(input.end);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "Invalid start or end time.";
+    if (end <= start) return "End time must be after the start.";
+    try {
+      const event = await createEvent({
+        summary: input.summary, start, end,
+        description: input.description ?? null, location: input.location ?? null,
+      });
+      return `Created "${event.summary}" ${whenLocal(start)}–${whenLocal(end).slice(-5)}.`;
+    } catch (err) {
+      return `Could not create the event: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+});
+
+export const findSlotTool = betaZodTool({
+  name: "find_slot",
+  description:
+    "Find free time of a given length in his calendar. Use before proposing when to study, " +
+    "fly, or meet someone — proposing a time he is already busy wastes his day.",
+  inputSchema: z.object({
+    minutes: z.number().int().min(15).max(600),
+    days: z.number().int().min(1).max(21).optional(),
+    earliest_hour: z.number().int().min(0).max(23).optional(),
+    latest_hour: z.number().int().min(1).max(24).optional(),
+  }),
+  run: async (input) => {
+    const problem = await requireGoogle();
+    if (problem) return problem;
+    try {
+      const days = input.days ?? 5;
+      const events = await listEvents({ to: new Date(Date.now() + days * 864e5), limit: 100 });
+      const slots = freeSlots(events, {
+        minutes: input.minutes, days,
+        dayStartHour: input.earliest_hour ?? 9, dayEndHour: input.latest_hour ?? 20,
+      });
+      if (slots.length === 0) return `No free ${input.minutes}-minute window in the next ${days} days.`;
+      return slots.slice(0, 8)
+        .map((s) => `- ${whenLocal(s.start)} to ${whenLocal(s.end).slice(-5)}`)
+        .join("\n");
+    } catch (err) {
+      return `Calendar unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+});
+
+export const searchDriveTool = betaZodTool({
+  name: "search_drive",
+  description:
+    "Search his Google Drive by full text. Use for material he says he dropped in a folder — " +
+    "study PDFs, spec sheets, invoices, anything shared with his friend.",
+  inputSchema: z.object({ query: z.string(), read_top_result: z.boolean().optional() }),
+  run: async ({ query: q, read_top_result }) => {
+    const problem = await requireGoogle();
+    if (problem) return problem;
+    try {
+      const files = await searchDrive(q);
+      if (files.length === 0) return "Nothing in Drive matches that.";
+      const lines = files.map((f) => `- ${f.name} (${f.mimeType.split(".").pop()})${f.webViewLink ? ` ${f.webViewLink}` : ""}`);
+      if (read_top_result && files[0]) {
+        const text = await readDriveFile(files[0], 12_000);
+        if (text) lines.push("", `--- ${files[0].name} ---`, text);
+      }
+      return lines.join("\n");
+    } catch (err) {
+      return `Drive unavailable: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 });
 
@@ -904,6 +1034,10 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  listEventsTool,
+  createEventTool,
+  findSlotTool,
+  searchDriveTool,
   decisionTool,
   readDecisionTool,
   decideTool,

@@ -15,6 +15,8 @@ import { listGear } from "../memory/gear.js";
 import { findGoal, listTopics, progress, dueCards } from "../memory/study.js";
 import { summary as moneySummary, outstanding, affordability, money } from "../memory/money.js";
 import { runResearch, runScout } from "../jobs/research.js";
+import { isConfigured as googleConfigured, connectedAccount } from "../integrations/google.js";
+import { syncDrive } from "../jobs/drive.js";
 import { today as bodyToday, week as bodyWeek } from "../memory/body.js";
 import { listDecisions, findDecision, listOptions, listAssumptions, optionLine } from "../memory/decisions.js";
 
@@ -109,6 +111,7 @@ bot.command("start", async (ctx) => {
       "<b>/projects</b> — projects and deadlines",
       "<b>/export</b> — everything, as files, right now",
       "<b>/login</b> — open the console on this device",
+      "<b>/connect</b> — link Google Drive and Calendar",
       "<b>/brief</b> — today's brief now",
       "<b>/recent</b> — the last ten things",
       "<b>/stats</b> — what's in the brain",
@@ -283,6 +286,36 @@ bot.command("login", async (ctx) => {
     `Open this on whichever device you're on — phone, iPad, laptop, desktop.\n\n${url}\n\n` +
       `Good for 10 minutes, then you're signed in for 90 days.`,
     { link_preview_options: { is_disabled: true } },
+  );
+});
+
+bot.command("connect", async (ctx) => {
+  if (!googleConfigured()) {
+    await ctx.reply(
+      "Google isn't configured yet. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET — " +
+        "docs/GOOGLE-SETUP.md walks through it, about ten minutes.",
+    );
+    return;
+  }
+  if (!config.publicUrl) {
+    await ctx.reply("Deploy first — Google needs a public callback URL, so PUBLIC_URL must be set.");
+    return;
+  }
+  const already = await connectedAccount();
+  const url = `${config.publicUrl.replace(/\/$/, "")}/auth/google`;
+  await ctx.reply(
+    (already ? `Already connected as ${already}. To reconnect:\n\n` : "Open this and approve:\n\n") + url,
+    { link_preview_options: { is_disabled: true } },
+  );
+});
+
+bot.command("drive", async (ctx) => {
+  await ctx.replyWithChatAction("typing");
+  const { scanned, indexed } = await syncDrive();
+  await ctx.reply(
+    scanned === 0
+      ? "Nothing new in Drive — or Google isn't connected yet (/connect)."
+      : `Scanned ${scanned} file${scanned === 1 ? "" : "s"}, indexed ${indexed}.`,
   );
 });
 
