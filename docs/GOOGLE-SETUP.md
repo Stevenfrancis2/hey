@@ -4,6 +4,12 @@ About ten minutes, once. The code is already written — you are only creating c
 
 Everything else in the system works without this. Skip it and nothing breaks.
 
+> **Updated September 2026.** Google moved all of this. What used to be
+> *APIs & Services → OAuth consent screen* is now its own section called
+> **Google Auth Platform**, split across four tabs — Branding, Audience,
+> Data Access and Clients. If a guide tells you to click "OAuth consent
+> screen", it was written before the change and the menu item is gone.
+
 ---
 
 ## 1 · Make a project
@@ -19,28 +25,50 @@ Everything else in the system works without this. Skip it and nothing breaks.
 - **Google Drive API**
 - **Google Calendar API**
 
-## 3 · Consent screen
+## 3 · Google Auth Platform
 
-**APIs & Services → OAuth consent screen**
+Left menu → **Google Auth Platform**. If the project has never had auth set up,
+it shows a **Get started** button; that walks you through Branding and Audience
+in one flow. Otherwise use the tabs directly.
 
-- User type: **External** → Create
-  *(External sounds wrong for a personal tool, but Internal requires a Workspace
-  organisation. External with yourself as the only test user is correct here.)*
-- App name `Second Steven`, your email for both support and developer contact
-- **Save and continue** through Scopes — you don't need to add any here
-- **Test users → Add users → your own Gmail address.** Miss this and Google
-  blocks the login with "app has not completed verification"
-- Save. Leave it in **Testing**; you never need to publish it
+**Branding**
+- App name: `Second Steven`
+- User support email: your own
+- Developer contact email: your own
+- Save
 
-> A refresh token from an app in Testing expires after **seven days**. That is a
-> Google policy, not a bug in this. When Drive or Calendar stops working, send
-> `/connect` again — it takes five seconds. To stop that permanently, click
-> **Publish app**; for a personal-use app with only your own account, Google
-> does not require verification review.
+**Audience**
+- User type: **External**
+  *(External sounds wrong for a personal tool, but Internal requires a Google
+  Workspace organisation. External with only your own account is correct here.)*
 
-## 4 · Credentials
+**Data Access** — you do not need to add scopes by hand. The app asks for what
+it needs at connect time. For reference, it requests exactly two:
 
-**APIs & Services → Credentials → Create Credentials → OAuth client ID**
+| Scope | Why |
+|---|---|
+| `drive.readonly` | Read-only. It indexes your files; it never writes or deletes. |
+| `calendar` | Read *and* write, so it can create events you ask for. |
+
+## 4 · Publish it — do not leave it in Testing
+
+Still on **Audience**, under Publishing status, click **Publish app** and confirm.
+
+This matters more than it looks. **An app left in Testing has every refresh
+token expire after exactly seven days** — that is Google policy, not a bug here.
+Leave it in Testing and Drive and Calendar quietly stop working every week and
+you have to reconnect. In Production the token lasts until you revoke it.
+
+You will *not* be asked to complete verification for this. Verification is
+required to remove the warning screen and to go past 100 users; Google's own
+rules make an explicit exception for an app whose only user is you. You stay
+unverified, you see one warning screen at connect time, and you click past it.
+
+## 5 · Create the OAuth client
+
+**Google Auth Platform → Clients → Create client**
+*(the old path, APIs & Services → Credentials → Create Credentials → OAuth client ID,
+still works and lands in the same place)*
 
 - Application type: **Web application**
 - Name: `second-steven`
@@ -50,8 +78,8 @@ Everything else in the system works without this. Skip it and nothing breaks.
 https://YOUR-APP.fly.dev/auth/google/callback
 ```
 
-Replace `YOUR-APP` with your real Fly app name. If you also want it to work
-locally, add a second URI:
+Replace `YOUR-APP` with your real Fly app name. To use it locally as well, add a
+second URI:
 
 ```
 http://localhost:8080/auth/google/callback
@@ -59,7 +87,7 @@ http://localhost:8080/auth/google/callback
 
 - **Create**. Copy the **Client ID** and **Client secret**.
 
-## 5 · Give them to the app
+## 6 · Give them to the app
 
 ```bash
 fly secrets set \
@@ -69,14 +97,14 @@ fly secrets set \
 
 Locally, put the same two values in `.env`.
 
-## 6 · Connect
+## 7 · Connect
 
 Send **`/connect`** to the bot. It replies with a link — open it, choose your
 account, approve.
 
-Google will warn **"Google hasn't verified this app"**. That is expected for an
-app in Testing. Click **Advanced → Go to Second Steven (unsafe)**. It is your own
-app, with your own credentials, talking to your own account.
+Google will warn **"Google hasn't verified this app"**. Expected, as above.
+Click **Advanced → Go to Second Steven (unsafe)**. It is your own app, with your
+own credentials, talking to your own account.
 
 Done. Check it:
 
@@ -108,8 +136,9 @@ assistant indexes it. That is the shared space you asked for, without building o
 
 | Symptom | Cause |
 |---|---|
-| `redirect_uri_mismatch` | The URI in Google Cloud doesn't match byte for byte. Check `https` vs `http`, and no trailing slash. |
-| "has not completed verification" and no Advanced link | Your email isn't in **Test users**. |
+| Can't find "OAuth consent screen" in the menu | It's now **Google Auth Platform**, split into Branding / Audience / Data Access / Clients. |
+| `redirect_uri_mismatch` | The URI in Google Cloud doesn't match byte for byte. Check `https` vs `http`, the port, and no trailing slash. |
+| "has not completed verification" and no Advanced link | Your account isn't allowed to consent. If you left the app in Testing, add yourself under **Audience → Test users**; better, publish it (step 4). |
 | "Google returned no refresh token" | You approved before. Revoke at [myaccount.google.com/permissions](https://myaccount.google.com/permissions), then `/connect` again. |
-| Worked, then stopped after a week | The Testing-mode seven-day expiry. Send `/connect`, or publish the app. |
+| Worked, then stopped after a week | The app is still in **Testing**. Publish it — step 4. |
 | `/drive` says nothing new | Correct if nothing changed — it only fetches files whose modified time moved. |
