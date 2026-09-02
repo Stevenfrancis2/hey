@@ -5,6 +5,7 @@ import { listProjects } from "../memory/projects.js";
 import { listWatchlist } from "../memory/watchlist.js";
 import { listReminders } from "../memory/reminders.js";
 import { recall, recent } from "../memory/recall.js";
+import { findGoal, listTopics, progress, dueCards, listMaterials } from "../memory/study.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -224,5 +225,57 @@ export function loginPage(message: string): string {
 <p class="muted">Send <b>/login</b> to the bot on Telegram. It replies with a link — open it
 on this device and you're in for 90 days.</p>
 <div class="flash">${escapeHtml(message)}</div>
+`);
+}
+
+
+export async function studyPage(): Promise<string> {
+  const goal = await findGoal(null);
+  if (!goal) {
+    return page("Study", "/study", `
+<h1>Study</h1>
+<p class="muted">No plan yet. Tell the bot what you need to learn and by when, and it will
+build one — ordered by prerequisite, sized to the hours you actually have.</p>`);
+  }
+
+  const [topics, p, due, materials] = await Promise.all([
+    listTopics(goal.id), progress(goal.id), dueCards(goal.id, 50), listMaterials(goal.id),
+  ]);
+  const pct = p.totalHours > 0 ? Math.round((p.doneHours / p.totalHours) * 100) : 0;
+  const behind = p.requiredHoursPerDay !== null &&
+                 p.requiredHoursPerDay > Number(goal.hours_per_day);
+
+  return page("Study", "/study", `
+<h1>${escapeHtml(goal.name)}</h1>
+<p class="muted">${p.topicsDone}/${p.topicsTotal} topics · ${p.doneHours}/${p.totalHours}h · ${pct}% done
+${p.daysLeft !== null ? ` · ${p.daysLeft} days left` : ""}</p>
+
+${behind ? `<div class="flash" style="background:var(--signal-soft);border-color:var(--signal);color:var(--signal)">
+Needs ${p.requiredHoursPerDay}h/day from here, but the plan assumes ${goal.hours_per_day}h.
+Either find more hours, cut scope, or move the date.</div>` : ""}
+
+<div class="grid">
+  <div class="card"><div class="row"><h3>Needed per day</h3>
+    <span class="tag${behind ? " due" : " ok"}">${p.requiredHoursPerDay ?? "—"}h</span></div>
+    <p>against ${goal.hours_per_day}h planned</p></div>
+  <div class="card"><div class="row"><h3>Last 7 days</h3>
+    <span class="tag">${Math.round(p.studiedHours7d * 10) / 10}h</span></div>
+    <p>actually studied</p></div>
+  <div class="card"><div class="row"><h3>Due for review</h3>
+    <span class="tag${due.length > 0 ? " due" : ""}">${due.length}</span></div>
+    <p>ask the bot to quiz you</p></div>
+</div>
+
+<h2>The plan</h2>
+${topics.map((t) => `<div class="card"><div class="row">
+<h3>${t.status === "done" ? "✓ " : `${t.position}. `}${escapeHtml(t.name)}</h3>
+<span class="tag${t.status === "done" ? " ok" : ""}">${t.est_hours}h</span></div>
+${t.detail ? `<p>${escapeHtml(t.detail)}</p>` : ""}
+${t.confidence ? `<p>confidence ${t.confidence}/5</p>` : ""}</div>`).join("")}
+
+${materials.length ? `<h2>Material</h2>${materials.map((m) => `
+<div class="card"><div class="row"><h3>${escapeHtml(m.title)}</h3>
+<span class="tag">${m.kind}</span></div>
+${m.url ? `<p>${escapeHtml(m.url)}</p>` : ""}</div>`).join("")}` : ""}
 `);
 }

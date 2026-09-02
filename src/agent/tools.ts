@@ -7,6 +7,10 @@ import { createProject, listProjects, updateProject } from "../memory/projects.j
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
+import {
+  createGoal, findGoal, setTopics, listTopics, completeTopic, addMaterial, listMaterials,
+  logSession, progress, addCard, dueCards, gradeCard,
+} from "../memory/study.js";
 import { CONTEXT_KEYS } from "./classify.js";
 import { log } from "../log.js";
 
@@ -251,6 +255,175 @@ export const removeWatchTool = betaZodTool({
   },
 });
 
+// ── study ─────────────────────────────────────────────────
+export const setStudyPlanTool = betaZodTool({
+  name: "set_study_plan",
+  description:
+    "Create or replace a study plan. YOU work out the curriculum: order the topics by " +
+    "prerequisite — the thing that must be understood first comes first — and estimate hours " +
+    "honestly. Then this schedules it against the deadline. Use whenever he says he needs to " +
+    "learn something by a date. Re-calling it re-plans without losing completed topics.",
+  inputSchema: z.object({
+    goal: z.string().describe("What he is learning, e.g. 'NVIDIA NeMo for the bank project'"),
+    deadline: z.string().optional().describe("ISO date"),
+    hours_per_day: z.number().optional().describe("Realistic hours he can actually give it"),
+    context: ContextKey.optional(),
+    topics: z.array(z.object({
+      name: z.string(),
+      detail: z.string().optional().describe("What 'understood' looks like for this topic"),
+      est_hours: z.number().optional(),
+    })).min(1).describe("In prerequisite order — earliest first"),
+  }),
+  run: async (input) => {
+    const goal = await createGoal({
+      name: input.goal,
+      deadline: input.deadline ? new Date(input.deadline) : null,
+      hoursPerDay: input.hours_per_day ?? 2,
+      contextKey: input.context ?? null,
+    });
+    const n = await setTopics(goal.id, input.topics);
+    const p = await progress(goal.id);
+    const verdict =
+      p.requiredHoursPerDay === null
+        ? "No deadline set."
+        : p.requiredHoursPerDay > Number(goal.hours_per_day)
+          ? `Needs ${p.requiredHoursPerDay}h/day but he only has ${goal.hours_per_day}h. This plan does not fit — say so.`
+          : `Needs ${p.requiredHoursPerDay}h/day against the ${goal.hours_per_day}h available. Fits.`;
+    return `Planned "${goal.name}": ${n} topics, ${p.totalHours}h total, ${p.daysLeft ?? "?"} days left. ${verdict}`;
+  },
+});
+
+export const studyStatusTool = betaZodTool({
+  name: "study_status",
+  description: "The plan, what is done, what is next, and whether he is on track.",
+  inputSchema: z.object({ goal: z.string().optional() }),
+  run: async ({ goal: fragment }) => {
+    const goal = await findGoal(fragment ?? null);
+    if (!goal) return "No study plan yet.";
+    const [topics, p, due, materials] = await Promise.all([
+      listTopics(goal.id), progress(goal.id), dueCards(goal.id, 50), listMaterials(goal.id),
+    ]);
+    const next = topics.filter((t) => t.status !== "done").slice(0, 4);
+    return [
+      `${goal.name} — ${p.topicsDone}/${p.topicsTotal} topics, ${p.doneHours}/${p.totalHours}h`,
+      p.daysLeft !== null ? `${p.daysLeft} days left; needs ${p.requiredHoursPerDay}h/day from here` : "No deadline",
+      `Studied ${Math.round(p.studiedHours7d * 10) / 10}h in the last 7 days`,
+      `${due.length} cards due for review`,
+      `${materials.length} pieces of material`,
+      "",
+      "Next up:",
+      ...next.map((t) => `  ${t.position}. ${t.name} (${t.est_hours}h)${t.detail ? ` — ${t.detail}` : ""}`),
+    ].join("\n");
+  },
+});
+
+export const logStudyTool = betaZodTool({
+  name: "log_study",
+  description:
+    "Record a study session. Also mark the topic done when he has finished it, with his own " +
+    "confidence 1-5 — low confidence is a signal to schedule a revisit, not to move on.",
+  inputSchema: z.object({
+    minutes: z.number().int().min(1),
+    topic: z.string().optional(),
+    confidence: z.number().int().min(1).max(5).optional(),
+    completed: z.boolean().optional().describe("True if he finished that topic"),
+    notes: z.string().optional(),
+    goal: z.string().optional(),
+  }),
+  run: async (input) => {
+    const goal = await findGoal(input.goal ?? null);
+    if (!goal) return "No study plan to log against.";
+    await logSession({
+      goalId: goal.id, topicFragment: input.topic ?? null, minutes: input.minutes,
+      confidence: input.confidence ?? null, notes: input.notes ?? null,
+    });
+    let extra = "";
+    if (input.completed && input.topic) {
+      const topic = await completeTopic(goal.id, input.topic, input.confidence);
+      extra = topic ? ` "${topic.name}" marked done.` : "";
+    }
+    const p = await progress(goal.id);
+    return `Logged ${input.minutes}min.${extra} ${p.topicsDone}/${p.topicsTotal} topics; ` +
+      `${p.requiredHoursPerDay ?? "?"}h/day needed from here.`;
+  },
+});
+
+export const addStudyMaterialTool = betaZodTool({
+  name: "add_study_material",
+  description: "File something he dropped to study — a PDF, link, repo, video or course.",
+  inputSchema: z.object({
+    title: z.string(),
+    kind: z.enum(["pdf", "link", "repo", "video", "note", "course"]),
+    url: z.string().optional(),
+    notes: z.string().optional(),
+    goal: z.string().optional(),
+  }),
+  run: async (input) => {
+    const goal = await findGoal(input.goal ?? null);
+    if (!goal) return "No study plan yet — create one first with set_study_plan.";
+    await addMaterial({ goalId: goal.id, kind: input.kind, title: input.title,
+                        url: input.url ?? null, notes: input.notes ?? null });
+    return `Filed "${input.title}" under ${goal.name}.`;
+  },
+});
+
+export const addCardsTool = betaZodTool({
+  name: "add_study_cards",
+  description:
+    "Write review questions for what he just studied. Ask for the thing itself — a command, " +
+    "a config value, why an approach fails — not for a definition he can recite without " +
+    "understanding. Add these after any real study session.",
+  inputSchema: z.object({
+    cards: z.array(z.object({ question: z.string(), answer: z.string() })).min(1).max(15),
+    topic: z.string().optional(),
+    goal: z.string().optional(),
+  }),
+  run: async (input) => {
+    const goal = await findGoal(input.goal ?? null);
+    if (!goal) return "No study plan yet.";
+    for (const card of input.cards) {
+      await addCard({ goalId: goal.id, question: card.question, answer: card.answer,
+                      topicFragment: input.topic ?? null });
+    }
+    return `Added ${input.cards.length} review card${input.cards.length === 1 ? "" : "s"}.`;
+  },
+});
+
+export const quizTool = betaZodTool({
+  name: "get_due_cards",
+  description:
+    "Pull the review questions that are due. Ask him one at a time and wait for his answer " +
+    "before revealing yours — being asked is what makes it stick; re-reading only feels " +
+    "productive. Then call grade_card with how he actually did.",
+  inputSchema: z.object({ limit: z.number().int().min(1).max(20).optional(), goal: z.string().optional() }),
+  run: async (input) => {
+    const goal = await findGoal(input.goal ?? null);
+    if (!goal) return "No study plan yet.";
+    const cards = await dueCards(goal.id, input.limit ?? 5);
+    if (cards.length === 0) return "Nothing due for review.";
+    return cards.map((c) =>
+      `id=${c.id}\nQ: ${c.question}\nA: ${c.answer}${c.topic_name ? `\n(${c.topic_name})` : ""}`
+    ).join("\n---\n");
+  },
+});
+
+export const gradeCardTool = betaZodTool({
+  name: "grade_card",
+  description:
+    "Record how he did on a review card. 5 perfect, 4 correct with effort, 3 correct but shaky, " +
+    "2 or below wrong — which resets it to tomorrow. Grade honestly; a generous grade only " +
+    "means he sees it again too late.",
+  inputSchema: z.object({
+    card_id: z.string(),
+    grade: z.number().int().min(0).max(5),
+  }),
+  run: async ({ card_id, grade }) => {
+    const card = await gradeCard(card_id, grade);
+    if (!card) return "No such card.";
+    return `Next review in ${card.interval_days} day${card.interval_days === 1 ? "" : "s"}.`;
+  },
+});
+
 // ── flying and gear ───────────────────────────────────────
 export const flyabilityTool = betaZodTool({
   name: "flyability",
@@ -352,6 +525,13 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  setStudyPlanTool,
+  studyStatusTool,
+  logStudyTool,
+  addStudyMaterialTool,
+  addCardsTool,
+  quizTool,
+  gradeCardTool,
   flyabilityTool,
   listGearTool,
   addGearTool,

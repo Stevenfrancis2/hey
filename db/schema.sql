@@ -342,4 +342,72 @@ INSERT INTO gear (kind, brand, model, quantity, specs, notes) VALUES
    '{"watch_firmware":true}', 'Model read from "h2c" — confirm exact model.')
 ON CONFLICT (kind, model) DO NOTHING;
 
+-- ─────────────────────────────────────────────────────────────
+-- STUDY — material in, a plan out, and questions that come back
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS study_goals (
+  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name        text NOT NULL,
+  project_id  uuid REFERENCES projects(id),
+  context_id  uuid REFERENCES contexts(id),
+  deadline    date,
+  hours_per_day numeric(3,1) NOT NULL DEFAULT 2,
+  status      text NOT NULL DEFAULT 'active',   -- active|done|dropped
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (name)
+);
+
+CREATE TABLE IF NOT EXISTS study_topics (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  goal_id    uuid NOT NULL REFERENCES study_goals(id) ON DELETE CASCADE,
+  name       text NOT NULL,
+  detail     text,
+  position   integer NOT NULL,              -- prerequisite order; low comes first
+  est_hours  numeric(4,1) NOT NULL DEFAULT 1,
+  status     text NOT NULL DEFAULT 'todo',  -- todo|doing|done
+  confidence smallint,                      -- 1-5, his own read after studying
+  done_at    timestamptz,
+  UNIQUE (goal_id, name)
+);
+CREATE INDEX IF NOT EXISTS study_topics_order_idx ON study_topics (goal_id, position);
+
+CREATE TABLE IF NOT EXISTS study_materials (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  goal_id    uuid REFERENCES study_goals(id) ON DELETE CASCADE,
+  topic_id   uuid REFERENCES study_topics(id) ON DELETE SET NULL,
+  kind       text NOT NULL,        -- pdf|link|repo|video|note|course
+  title      text NOT NULL,
+  url        text,
+  notes      text,
+  capture_id uuid REFERENCES captures(id),
+  added_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS study_sessions (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  topic_id   uuid REFERENCES study_topics(id) ON DELETE SET NULL,
+  goal_id    uuid REFERENCES study_goals(id) ON DELETE CASCADE,
+  minutes    integer NOT NULL,
+  confidence smallint,
+  notes      text,
+  studied_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS study_sessions_at_idx ON study_sessions (studied_at DESC);
+
+-- Spaced repetition. Re-reading feels productive and is not; being asked is.
+CREATE TABLE IF NOT EXISTS study_cards (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  goal_id    uuid REFERENCES study_goals(id) ON DELETE CASCADE,
+  topic_id   uuid REFERENCES study_topics(id) ON DELETE SET NULL,
+  question   text NOT NULL,
+  answer     text NOT NULL,
+  ease       numeric(3,2) NOT NULL DEFAULT 2.5,
+  interval_days integer NOT NULL DEFAULT 0,
+  reps       integer NOT NULL DEFAULT 0,
+  lapses     integer NOT NULL DEFAULT 0,
+  due_at     timestamptz NOT NULL DEFAULT now(),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS study_cards_due_idx ON study_cards (due_at) WHERE reps >= 0;
+
 -- pg-boss creates and owns its own schema in this same database.

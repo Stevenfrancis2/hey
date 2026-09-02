@@ -12,6 +12,7 @@ import { listProjects } from "../memory/projects.js";
 import { issueLoginToken } from "../web/auth.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
 import { listGear } from "../memory/gear.js";
+import { findGoal, listTopics, progress, dueCards } from "../memory/study.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -93,6 +94,7 @@ bot.command("start", async (ctx) => {
       "I keep everything, and I answer when you actually asked.",
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/study</b> — the plan, and whether you're on track",
       "<b>/fly</b> — can I fly, per quad",
       "<b>/gear</b> — the fleet",
       "<b>/tasks</b> — what's open, by room",
@@ -109,8 +111,37 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/fly · /gear · /recall <query> · /tasks · /projects · /brief · /export · /login · /costs"),
+  ctx.reply("/study · /fly · /gear · /recall <query> · /tasks · /projects · /brief · /export · /login · /costs"),
 );
+
+bot.command("study", async (ctx) => {
+  const goal = await findGoal(null);
+  if (!goal) {
+    await ctx.reply("No study plan yet. Tell me what you need to learn and by when.");
+    return;
+  }
+  const [topics, p, due] = await Promise.all([
+    listTopics(goal.id), progress(goal.id), dueCards(goal.id, 50),
+  ]);
+  const next = topics.filter((t) => t.status !== "done").slice(0, 3);
+  const behind = p.requiredHoursPerDay !== null &&
+                 p.requiredHoursPerDay > Number(goal.hours_per_day);
+  await ctx.reply(
+    [
+      `<b>${escapeHtml(goal.name)}</b>`,
+      `${p.topicsDone}/${p.topicsTotal} topics · ${p.doneHours}/${p.totalHours}h` +
+        `${p.daysLeft !== null ? ` · ${p.daysLeft}d left` : ""}`,
+      `${Math.round(p.studiedHours7d * 10) / 10}h studied this week · ${due.length} cards due`,
+      behind
+        ? `\n⚠️ needs <b>${p.requiredHoursPerDay}h/day</b> but the plan assumes ${goal.hours_per_day}h`
+        : `\nneeds ${p.requiredHoursPerDay ?? "—"}h/day — on track`,
+      "",
+      "<b>Next</b>",
+      ...next.map((t) => `· ${escapeHtml(t.name)} (${t.est_hours}h)`),
+    ].join("\n"),
+    { parse_mode: "HTML" },
+  );
+});
 
 bot.command("fly", async (ctx) => {
   await ctx.replyWithChatAction("typing");

@@ -45,7 +45,7 @@ export async function listTasks(opts: { contextKey?: string | null; dueWithinDay
      WHERE t.status IN ('open','doing')
        AND (t.snoozed_until IS NULL OR t.snoozed_until <= now())
        AND ($1::text IS NULL OR c.key = $1)
-       AND ($2::int  IS NULL OR (t.due_at IS NOT NULL AND t.due_at <= now() + ($2 || ' days')::interval))
+       AND ($2::int IS NULL OR (t.due_at IS NOT NULL AND t.due_at <= now() + make_interval(days => $2::int)))
      ORDER BY (t.due_at IS NULL), t.due_at ASC, t.priority DESC, t.created_at ASC
      LIMIT 50`,
     [opts.contextKey ?? null, opts.dueWithinDays ?? null],
