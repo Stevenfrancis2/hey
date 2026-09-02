@@ -10,6 +10,8 @@ export type NewCapture = {
   mediaFileId?: string | null;
   mediaMime?: string | null;
   durationSeconds?: number | null;
+  /** Who said it, when it was forwarded from someone else. */
+  author?: string | null;
 };
 
 export type CaptureRow = {
@@ -20,6 +22,7 @@ export type CaptureRow = {
   raw_text: string | null;
   media_file_id: string | null;
   duration_s: number | null;
+  author: string | null;
   status: string;
 };
 
@@ -27,8 +30,8 @@ export type CaptureRow = {
 export async function recordCapture(input: NewCapture): Promise<string> {
   const row = await one<{ id: string }>(
     `INSERT INTO captures
-       (telegram_message_id, chat_id, kind, raw_text, media_file_id, media_mime, duration_s)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (telegram_message_id, chat_id, kind, raw_text, media_file_id, media_mime, duration_s, author)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
     [
       input.telegramMessageId,
@@ -38,6 +41,7 @@ export async function recordCapture(input: NewCapture): Promise<string> {
       input.mediaFileId ?? null,
       input.mediaMime ?? null,
       input.durationSeconds ?? null,
+      input.author ?? null,
     ],
   );
   if (!row) throw new Error("capture insert returned no row");
@@ -46,7 +50,7 @@ export async function recordCapture(input: NewCapture): Promise<string> {
 
 export async function getCapture(id: string): Promise<CaptureRow | null> {
   return one<CaptureRow>(
-    `SELECT id, chat_id, telegram_message_id, kind, raw_text, media_file_id, duration_s, status
+    `SELECT id, chat_id, telegram_message_id, kind, raw_text, media_file_id, duration_s, author, status
      FROM captures WHERE id = $1`,
     [id],
   );

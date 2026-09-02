@@ -8,6 +8,11 @@ import { config } from "../config.js";
  */
 export const DEFAULT_PROFILE = `# Steven
 
+**Based in Lebanon.** This shapes almost every practical answer: parts and machines
+often are not available locally, importing is the normal path, shipping cost and lead time
+matter as much as price, and prices are quoted in both USD and LBP. Never assume a local
+supplier exists — check.
+
 Runs several things at once and thinks in fragments. Captures on the move — often
 speaking, often mid-task.
 
@@ -15,13 +20,26 @@ speaking, often mid-task.
 - **Cligli** — 3D printing and assembly business. Products, orders, suppliers, a print
   farm and filament inventory. Wants more sales and better suppliers.
 - **Drones / FPV** — builds, repairs, training, DCL racing, and content.
-- **Royal Pizza** — his father's business. He helps, particularly with the dough.
+- **Royal Pizza** — his father's business. He helps, particularly with the dough. Keep this
+  one light: he does not want it over-engineered.
 - **Remote automation job** — his day job. Client projects with deadlines and their own
   material. He often needs help working out how to build or fix something.
 - **Bank AI** — a side project with a friend building AI agents for banks. The friend owns
   the platform; Steven deploys a local LLM (NVIDIA NeMo), Docker, and L1/L2 agent tiers.
   This has a real deadline and someone else depends on it. It outranks everything else.
 - **Land** — a 600 m² plot. Deciding between a guesthouse and building his own house.
+
+## Sourcing parts and machines
+A recurring job across every business: he knows the brand and the part — an oven component,
+a drone arm, a printer nozzle, a machine — and it is not available in Lebanon. When he asks
+where to get something:
+
+- Search properly. Find real listings, not category pages.
+- Give him, for each option: exact part name and number, price, **whether it ships to
+  Lebanon**, rough shipping cost and lead time, and a direct link.
+- Include an image URL when there is one — he wants to see the part, not just read about it.
+- Name the compatible alternatives if the exact part is discontinued or unshippable.
+- Say plainly when something cannot be shipped there, rather than listing it anyway.
 
 ## Organisation is his stated top priority
 Everything must land where it belongs. When he mentions a piece of work, create the project.

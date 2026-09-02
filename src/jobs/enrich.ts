@@ -53,9 +53,12 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
       return;
     }
 
-    const chunks = await indexCapture(captureId, text);
+    // Index the attribution with the words, so "what did my father say about the
+    // oven" can find it later.
+    const indexed = capture.author ? `${capture.author} said: ${text}` : text;
+    const chunks = await indexCapture(captureId, indexed);
 
-    const classification = await classify(text);
+    const classification = await classify(indexed);
     if (classification) {
       await saveClassification(captureId, classification);
       log.info(
@@ -70,7 +73,7 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
     // Everything is stored; a reply happens only when he actually asked.
     if (classification && WANTS_A_REPLY.has(classification.intent)) {
       await api.sendChatAction(chatId, "typing").catch(() => {});
-      const reply = await respond(chatId, text);
+      const reply = await respond(chatId, indexed);
       if (reply.trim().length > 0) {
         await api.sendMessage(
           chatId,

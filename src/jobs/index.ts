@@ -1,6 +1,7 @@
 import PgBoss from "pg-boss";
 import type { Api } from "grammy";
 import { log } from "../log.js";
+import { query } from "../db/index.js";
 import { enrichCapture } from "./enrich.js";
 import { fireDueReminders, sendBrief } from "./brief.js";
 import { runArchive } from "./archive.js";
@@ -11,6 +12,7 @@ const TICK_QUEUE = "reminders.tick";
 const MORNING_QUEUE = "brief.morning";
 const WEEKLY_QUEUE = "brief.weekly";
 const ARCHIVE_QUEUE = "archive.nightly";
+const SWEEP_QUEUE = "capture.sweep";
 
 export type EnrichJob = { captureId: string };
 
@@ -40,7 +42,7 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   // ── scheduled work ──────────────────────────────────────
   const chatId = config.telegram.ownerId;
 
-  for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE]) {
+  for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE]) {
     await instance.createQueue(name);
   }
 
@@ -57,6 +59,18 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.work(ARCHIVE_QUEUE, { batchSize: 1 }, async () => {
     await runArchive(api, chatId, false);
   });
+  // A capture is written before it is enqueued. If the process dies in between,
+  // or the queue is briefly unavailable, the row would sit pending forever —
+  // and a lost thought is the one failure this system cannot have.
+  await instance.work(SWEEP_QUEUE, { batchSize: 1 }, async () => {
+    const stuck = await query<{ id: string }>(
+      `SELECT id FROM captures
+       WHERE status = 'pending' AND captured_at < now() - interval '5 minutes'
+       ORDER BY captured_at LIMIT 25`,
+    );
+    for (const row of stuck) await enqueueEnrich(row.id);
+    if (stuck.length > 0) log.warn({ recovered: stuck.length }, "swept stranded captures");
+  });
 
   // Cron is evaluated in the timezone we pass, so DST is handled for us.
   const tz = { tz: config.timezone };
@@ -64,6 +78,7 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(MORNING_QUEUE, "30 6 * * *", {}, tz);
   await instance.schedule(WEEKLY_QUEUE, "0 18 * * 0", {}, tz);
   await instance.schedule(ARCHIVE_QUEUE, "0 3 * * *", {}, tz);
+  await instance.schedule(SWEEP_QUEUE, "*/10 * * * *", {}, tz);
 
   boss = instance;
   log.info({ timezone: config.timezone }, "job runner started");

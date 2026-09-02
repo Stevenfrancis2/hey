@@ -5,6 +5,8 @@ import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks
 import { createReminder, listReminders, cancelReminder } from "../memory/reminders.js";
 import { createProject, listProjects, updateProject } from "../memory/projects.js";
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
+import { listGear, addGear, setGearStatus } from "../memory/gear.js";
+import { flyability, formatFlyability } from "../integrations/weather.js";
 import { CONTEXT_KEYS } from "./classify.js";
 import { log } from "../log.js";
 
@@ -249,6 +251,85 @@ export const removeWatchTool = betaZodTool({
   },
 });
 
+// ── flying and gear ───────────────────────────────────────
+export const flyabilityTool = betaZodTool({
+  name: "flyability",
+  description:
+    "Whether Steven can fly, per aircraft. His quads are not comparable — a day the " +
+    "5-inch enjoys will pin the Meteor 75 indoors — so this answers for each one " +
+    "separately using wind, gusts, rain and daylight. Use it for any question about " +
+    "flying, wind, or whether today or a given day is any good.",
+  inputSchema: z.object({
+    days: z.number().int().min(1).max(7).optional().describe("How far ahead to look; default 2"),
+  }),
+  run: async ({ days }) => {
+    try {
+      return formatFlyability(await flyability(days ?? 2));
+    } catch (err) {
+      return `Weather lookup failed: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  },
+});
+
+export const listGearTool = betaZodTool({
+  name: "list_gear",
+  description:
+    "Steven's actual kit — quads, radios, 3D printers, batteries. Check this before " +
+    "answering anything about his hardware, so advice is about what he owns rather " +
+    "than a generic product.",
+  inputSchema: z.object({
+    kind: z.enum(["drone", "radio", "printer", "battery", "goggles", "tool", "other"]).optional(),
+  }),
+  run: async ({ kind }) => {
+    const gear = await listGear(kind ?? null);
+    if (gear.length === 0) return "Nothing recorded.";
+    return gear
+      .map((g) => `- [${g.kind}] ${g.brand ?? ""} ${g.model}${g.quantity > 1 ? ` x${g.quantity}` : ""}` +
+        `${g.status !== "active" ? ` (${g.status})` : ""}${g.notes ? ` — ${g.notes}` : ""}`)
+      .join("\n");
+  },
+});
+
+export const addGearTool = betaZodTool({
+  name: "add_gear",
+  description:
+    "Record a piece of kit he mentions owning. For a quad, set wind_limit_kmh and " +
+    "gust_limit_kmh in specs so flyability can answer for it — a whoop is roughly 8/12, " +
+    "a 2-inch 16/22, a 5-inch 32/38.",
+  inputSchema: z.object({
+    kind: z.enum(["drone", "radio", "printer", "battery", "goggles", "tool", "other"]),
+    model: z.string(),
+    brand: z.string().optional(),
+    quantity: z.number().int().min(1).optional(),
+    wind_limit_kmh: z.number().optional(),
+    gust_limit_kmh: z.number().optional(),
+    notes: z.string().optional(),
+  }),
+  run: async (input) => {
+    const specs: Record<string, unknown> = {};
+    if (input.wind_limit_kmh) specs.wind_limit_kmh = input.wind_limit_kmh;
+    if (input.gust_limit_kmh) specs.gust_limit_kmh = input.gust_limit_kmh;
+    const gear = await addGear({
+      kind: input.kind, model: input.model, brand: input.brand ?? null,
+      quantity: input.quantity ?? 1, specs, notes: input.notes ?? null,
+    });
+    return `Recorded ${gear.brand ?? ""} ${gear.model}${gear.quantity > 1 ? ` x${gear.quantity}` : ""}.`;
+  },
+});
+
+export const setGearStatusTool = betaZodTool({
+  name: "set_gear_status",
+  description: "Mark a piece of kit broken, active again, or retired.",
+  inputSchema: z.object({
+    model: z.string(),
+    status: z.enum(["active", "broken", "retired"]),
+  }),
+  run: async ({ model, status }) => {
+    const gear = await setGearStatus(model, status);
+    return gear ? `${gear.model} is now ${status}.` : `No kit matching "${model}".`;
+  },
+});
+
 /** Runs on Anthropic's servers — no implementation, and no scraping code to own. */
 export const webSearchTool = {
   type: "web_search_20260209" as const,
@@ -271,6 +352,10 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  flyabilityTool,
+  listGearTool,
+  addGearTool,
+  setGearStatusTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

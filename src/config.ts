@@ -15,7 +15,7 @@ export const config = {
   env: optional("NODE_ENV", "development"),
   port: Number(optional("PORT", "8080")),
   logLevel: optional("LOG_LEVEL", "info"),
-  timezone: optional("TZ", "Europe/Paris"),
+  timezone: optional("TZ", "Asia/Beirut"),
 
   /** Set in production. Its presence switches the bot from polling to webhooks. */
   publicUrl: process.env.PUBLIC_URL || null,
@@ -24,6 +24,13 @@ export const config = {
     token: required("TELEGRAM_BOT_TOKEN"),
     ownerId: Number(required("TELEGRAM_OWNER_ID")),
     webhookSecret: optional("TELEGRAM_WEBHOOK_SECRET", "sven-local-secret"),
+  },
+
+  /** Open-Meteo needs coordinates. Defaults to Beirut. */
+  location: {
+    latitude: Number(optional("LATITUDE", "33.8938")),
+    longitude: Number(optional("LONGITUDE", "35.5018")),
+    name: optional("LOCATION_NAME", "Beirut, Lebanon"),
   },
 
   anthropic: {

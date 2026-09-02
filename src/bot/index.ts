@@ -9,6 +9,9 @@ import { costSummary } from "../agent/client.js";
 import { sendBrief } from "../jobs/brief.js";
 import { runArchive } from "../jobs/archive.js";
 import { listProjects } from "../memory/projects.js";
+import { issueLoginToken } from "../web/auth.js";
+import { flyability, formatFlyability } from "../integrations/weather.js";
+import { listGear } from "../memory/gear.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -20,6 +23,32 @@ bot.use(async (ctx, next) => {
   }
   await next();
 });
+
+/**
+ * Who actually said this. A forwarded voice note from his father or a supplier is
+ * someone else's words — attributing it means he can send it instead of retyping
+ * what they told him.
+ */
+function authorOf(message: { forward_origin?: unknown }): string | null {
+  const origin = message.forward_origin as
+    | { type: string; sender_user?: { first_name: string; last_name?: string };
+        sender_user_name?: string; sender_chat?: { title?: string }; chat?: { title?: string } }
+    | undefined;
+  if (!origin) return null;
+  switch (origin.type) {
+    case "user":
+      return [origin.sender_user?.first_name, origin.sender_user?.last_name]
+        .filter(Boolean).join(" ") || "someone";
+    case "hidden_user":
+      return origin.sender_user_name ?? "someone";
+    case "chat":
+      return origin.sender_chat?.title ?? "a group";
+    case "channel":
+      return origin.chat?.title ?? "a channel";
+    default:
+      return "someone";
+  }
+}
 
 /** A reaction is the lowest-friction acknowledgement: no message clutter. */
 async function ack(ctx: Context): Promise<void> {
@@ -64,9 +93,12 @@ bot.command("start", async (ctx) => {
       "I keep everything, and I answer when you actually asked.",
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/fly</b> — can I fly, per quad",
+      "<b>/gear</b> — the fleet",
       "<b>/tasks</b> — what's open, by room",
       "<b>/projects</b> — projects and deadlines",
       "<b>/export</b> — everything, as files, right now",
+      "<b>/login</b> — open the console on this device",
       "<b>/brief</b> — today's brief now",
       "<b>/recent</b> — the last ten things",
       "<b>/stats</b> — what's in the brain",
@@ -77,8 +109,35 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/recall <query> · /tasks · /projects · /brief · /export · /recent · /stats · /costs"),
+  ctx.reply("/fly · /gear · /recall <query> · /tasks · /projects · /brief · /export · /login · /costs"),
 );
+
+bot.command("fly", async (ctx) => {
+  await ctx.replyWithChatAction("typing");
+  try {
+    await ctx.reply(formatFlyability(await flyability(2)));
+  } catch (err) {
+    log.error({ err }, "flyability failed");
+    await ctx.reply("Couldn't reach the weather service just now.");
+  }
+});
+
+bot.command("gear", async (ctx) => {
+  const gear = await listGear();
+  const byKind = new Map<string, string[]>();
+  for (const g of gear) {
+    const line =
+      `· ${escapeHtml(`${g.brand ?? ""} ${g.model}`.trim())}` +
+      `${g.quantity > 1 ? ` ×${g.quantity}` : ""}` +
+      `${g.status !== "active" ? ` <i>(${g.status})</i>` : ""}` +
+      `${g.specs.wind_limit_kmh ? ` — wind ≤${g.specs.wind_limit_kmh}` : ""}`;
+    byKind.set(g.kind, [...(byKind.get(g.kind) ?? []), line]);
+  }
+  const body = [...byKind.entries()]
+    .map(([kind, lines]) => `<b>${kind}</b>\n${lines.join("\n")}`)
+    .join("\n\n");
+  await ctx.reply(body || "Nothing recorded yet.", { parse_mode: "HTML" });
+});
 
 bot.command("projects", async (ctx) => {
   const projects = await listProjects();
@@ -98,6 +157,19 @@ bot.command("projects", async (ctx) => {
     })
     .join("\n");
   await ctx.reply(body, { parse_mode: "HTML" });
+});
+
+bot.command("login", async (ctx) => {
+  if (!config.publicUrl) {
+    await ctx.reply("The console isn't deployed yet — PUBLIC_URL is not set.");
+    return;
+  }
+  const url = `${config.publicUrl.replace(/\/$/, "")}/login?t=${issueLoginToken()}`;
+  await ctx.reply(
+    `Open this on whichever device you're on — phone, iPad, laptop, desktop.\n\n${url}\n\n` +
+      `Good for 10 minutes, then you're signed in for 90 days.`,
+    { link_preview_options: { is_disabled: true } },
+  );
 });
 
 bot.command("export", async (ctx) => {
@@ -186,6 +258,7 @@ async function capture(
   kind: CaptureKind,
   rawText: string | null,
   media?: { fileId: string; mime?: string; duration?: number },
+  author?: string | null,
 ): Promise<void> {
   const messageId = ctx.message?.message_id;
   const chatId = ctx.chat?.id;
@@ -199,6 +272,7 @@ async function capture(
     mediaFileId: media?.fileId ?? null,
     mediaMime: media?.mime ?? null,
     durationSeconds: media?.duration ?? null,
+    author: author ?? null,
   });
 
   // Fire-and-forget: the acknowledgement must not wait on the queue.
@@ -212,7 +286,7 @@ bot.on("message:voice", async (ctx) => {
     fileId: ctx.message.voice.file_id,
     mime: ctx.message.voice.mime_type,
     duration: ctx.message.voice.duration,
-  });
+  }, authorOf(ctx.message));
 });
 
 bot.on("message:audio", async (ctx) => {
@@ -221,14 +295,14 @@ bot.on("message:audio", async (ctx) => {
     fileId: ctx.message.audio.file_id,
     mime: ctx.message.audio.mime_type,
     duration: ctx.message.audio.duration,
-  });
+  }, authorOf(ctx.message));
 });
 
 bot.on("message:photo", async (ctx) => {
   await ack(ctx);
   const largest = ctx.message.photo.at(-1);
   await capture(ctx, "photo", ctx.message.caption ?? null,
-    largest ? { fileId: largest.file_id } : undefined);
+    largest ? { fileId: largest.file_id } : undefined, authorOf(ctx.message));
 });
 
 bot.on("message:document", async (ctx) => {
@@ -236,13 +310,13 @@ bot.on("message:document", async (ctx) => {
   await capture(ctx, "document", ctx.message.caption ?? null, {
     fileId: ctx.message.document.file_id,
     mime: ctx.message.document.mime_type,
-  });
+  }, authorOf(ctx.message));
 });
 
 bot.on("message:text", async (ctx) => {
   await ack(ctx);
-  const forwarded = "forward_origin" in ctx.message && ctx.message.forward_origin !== undefined;
-  await capture(ctx, forwarded ? "forward" : "text", ctx.message.text);
+  const author = authorOf(ctx.message);
+  await capture(ctx, author ? "forward" : "text", ctx.message.text, undefined, author);
 });
 
 bot.catch((err) => log.error({ err: err.error, update: err.ctx.update.update_id }, "bot error"));

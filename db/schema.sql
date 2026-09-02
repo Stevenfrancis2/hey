@@ -271,6 +271,9 @@ CREATE TABLE IF NOT EXISTS projects (
 CREATE INDEX IF NOT EXISTS projects_active_idx ON projects (status, deadline)
   WHERE status IN ('active','paused');
 
+-- Forwarded messages carry someone else's words. Attribute them.
+ALTER TABLE captures           ADD COLUMN IF NOT EXISTS author text;
+
 ALTER TABLE tasks              ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
 ALTER TABLE capture_enrichment ADD COLUMN IF NOT EXISTS project_id uuid REFERENCES projects(id);
 CREATE INDEX IF NOT EXISTS tasks_project_idx ON tasks (project_id);
@@ -300,5 +303,43 @@ CREATE TABLE IF NOT EXISTS archive_runs (
   delivered  boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ─────────────────────────────────────────────────────────────
+-- GEAR — the actual kit. Drives per-aircraft flyability and
+-- firmware watching, so answers are about HIS things.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS gear (
+  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind        text NOT NULL,        -- drone|radio|printer|battery|goggles|tool|other
+  brand       text,
+  model       text NOT NULL,
+  nickname    text,
+  quantity    integer NOT NULL DEFAULT 1,
+  status      text NOT NULL DEFAULT 'active',   -- active|broken|retired
+  specs       jsonb NOT NULL DEFAULT '{}',      -- class, wind_limit_kmh, size_mm, ...
+  notes       text,
+  acquired_at date,
+  UNIQUE (kind, model)
+);
+CREATE INDEX IF NOT EXISTS gear_kind_idx ON gear (kind, status);
+
+INSERT INTO gear (kind, brand, model, quantity, specs, notes) VALUES
+  ('drone', 'iFlight',  'Nazgul F5 V3', 1,
+   '{"class":"5inch","size":"5\"","wind_limit_kmh":32,"gust_limit_kmh":38}',
+   'Freestyle. Handles real wind.'),
+  ('drone', 'BetaFPV',  'Meteor 75', 1,
+   '{"class":"whoop","size":"75mm","wind_limit_kmh":8,"gust_limit_kmh":12}',
+   'Tiny whoop. Effectively indoor or dead calm.'),
+  ('drone', 'Flywoo',   'DarkStar 22', 1,
+   '{"class":"micro","size":"2.2\"","wind_limit_kmh":16,"gust_limit_kmh":22}',
+   'Micro long range. Brand assumed Flywoo — correct it if wrong.'),
+  ('radio', 'RadioMaster', 'TX16S MAX', 1, '{}',
+   'Assumed TX16S MAX; there is no TX15. Correct it if wrong.'),
+  ('radio', 'RadioMaster', 'Boxer', 1, '{}', NULL),
+  ('printer', 'Bambu Lab', 'A1', 7,
+   '{"watch_firmware":true}', 'The farm. Seven of them.'),
+  ('printer', 'Bambu Lab', 'H2C', 1,
+   '{"watch_firmware":true}', 'Model read from "h2c" — confirm exact model.')
+ON CONFLICT (kind, model) DO NOTHING;
 
 -- pg-boss creates and owns its own schema in this same database.
