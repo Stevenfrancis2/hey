@@ -14,6 +14,7 @@ import { flyability, formatFlyability } from "../integrations/weather.js";
 import { listGear } from "../memory/gear.js";
 import { findGoal, listTopics, progress, dueCards } from "../memory/study.js";
 import { summary as moneySummary, outstanding, affordability, money } from "../memory/money.js";
+import { runResearch, runScout } from "../jobs/research.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -95,6 +96,7 @@ bot.command("start", async (ctx) => {
       "I keep everything, and I answer when you actually asked.",
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/desk</b> — run the research desk now",
       "<b>/money</b> — the books, and what you can spend",
       "<b>/study</b> — the plan, and whether you're on track",
       "<b>/fly</b> — can I fly, per quad",
@@ -113,8 +115,18 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/money · /study · /fly · /gear · /recall <q> · /tasks · /projects · /brief · /export · /login"),
+  ctx.reply("/money · /study · /fly · /gear · /desk · /recall <q> · /tasks · /projects · /brief · /export · /login"),
 );
+
+bot.command("desk", async (ctx) => {
+  await ctx.replyWithChatAction("typing");
+  await runResearch(ctx.api, ctx.chat.id, "daily");
+});
+
+bot.command("scout", async (ctx) => {
+  await ctx.replyWithChatAction("typing");
+  await runScout(ctx.api, ctx.chat.id);
+});
 
 bot.command("money", async (ctx) => {
   const [rows, owed, afford] = await Promise.all([

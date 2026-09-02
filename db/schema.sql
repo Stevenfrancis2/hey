@@ -446,4 +446,56 @@ CREATE TABLE IF NOT EXISTS bills (
   active       boolean NOT NULL DEFAULT true
 );
 
+-- ─────────────────────────────────────────────────────────────
+-- RESEARCH DESK — standing questions, answered on a cadence
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS research_topics (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name       text UNIQUE NOT NULL,
+  brief      text NOT NULL,          -- what he actually wants to know, in his terms
+  context_id uuid REFERENCES contexts(id),
+  cadence    text NOT NULL DEFAULT 'weekly',   -- daily|weekly
+  active     boolean NOT NULL DEFAULT true,
+  last_run   timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS research_findings (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  topic_id   uuid REFERENCES research_topics(id) ON DELETE CASCADE,
+  body_md    text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS research_findings_at_idx ON research_findings (created_at DESC);
+
+INSERT INTO research_topics (name, brief, cadence, context_id) VALUES
+  ('AI news', 'Model releases, agent tooling, and anything that changes how he should build. Skip funding rounds and hype.', 'daily',
+   (SELECT id FROM contexts WHERE key='personal')),
+  ('Bambu Lab firmware', 'Firmware releases and known glitches for the A1 and H2C. He runs seven A1s, so a bad release is expensive.', 'daily',
+   (SELECT id FROM contexts WHERE key='cligli')),
+  ('3D print market', 'Trending printed products, the toy market, and what is selling. Machines worth buying.', 'weekly',
+   (SELECT id FROM contexts WHERE key='cligli')),
+  ('FPV and DCL', 'DCL season results and calendar, new gear worth having, rule changes.', 'weekly',
+   (SELECT id FROM contexts WHERE key='drones')),
+  ('Markets', 'His watchlist plus drones, nuclear, water and AI. What moved and why. Facts, not calls.', 'daily',
+   (SELECT id FROM contexts WHERE key='finance')),
+  ('NeMo and agent infra', 'NVIDIA NeMo, NIM, guardrails and evaluation — anything that affects the bank project.', 'weekly',
+   (SELECT id FROM contexts WHERE key='bank_ai'))
+ON CONFLICT (name) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- AUTOMATION SCOUT — work he keeps doing by hand
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS automation_candidates (
+  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title       text NOT NULL UNIQUE,
+  observation text NOT NULL,      -- what pattern was actually seen
+  proposal    text NOT NULL,      -- how to automate it
+  effort      text,               -- small|medium|large
+  saves       text,               -- rough time saved
+  status      text NOT NULL DEFAULT 'proposed',  -- proposed|accepted|rejected|done
+  context_id  uuid REFERENCES contexts(id),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- pg-boss creates and owns its own schema in this same database.

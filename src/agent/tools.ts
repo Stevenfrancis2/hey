@@ -6,6 +6,11 @@ import { createReminder, listReminders, cancelReminder } from "../memory/reminde
 import { createProject, listProjects, updateProject } from "../memory/projects.js";
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
+import {
+  listTopics as listResearchTopics, addTopic as addResearchTopic,
+  removeTopic as removeResearchTopic, recentFindings,
+  addCandidate, listCandidates, setCandidateStatus,
+} from "../memory/research.js";
 import { flyability, formatFlyability } from "../integrations/weather.js";
 import {
   record as recordMoney, summary as moneySummary, outstanding, settle,
@@ -256,6 +261,103 @@ export const removeWatchTool = betaZodTool({
   run: async ({ name }) => {
     const item = await removeFromWatchlist(name);
     return item ? `Stopped watching ${item.name}.` : `Nothing on the watchlist matching "${name}".`;
+  },
+});
+
+// ── research desk and automation scout ────────────────────
+export const addResearchTopicTool = betaZodTool({
+  name: "add_research_topic",
+  description:
+    "Add a standing question the desk answers on a cadence. The brief should say what he " +
+    "actually wants to know and what to ignore — a vague brief produces a newsletter, which " +
+    "he will stop reading.",
+  inputSchema: z.object({
+    name: z.string(),
+    brief: z.string().describe("What he wants to know, and explicitly what to skip"),
+    cadence: z.enum(["daily", "weekly"]).optional(),
+    context: ContextKey.optional(),
+  }),
+  run: async (input) => {
+    await addResearchTopic({
+      name: input.name, brief: input.brief,
+      cadence: input.cadence ?? "weekly", contextKey: input.context ?? null,
+    });
+    return `Desk will cover "${input.name}" ${input.cadence ?? "weekly"}.`;
+  },
+});
+
+export const listResearchTool = betaZodTool({
+  name: "list_research",
+  description: "What the desk is tracking, and the most recent findings.",
+  inputSchema: z.object({ findings: z.boolean().optional() }),
+  run: async ({ findings }) => {
+    const topics = await listResearchTopics();
+    const lines = topics.map((t) => `- [${t.cadence}] ${t.name} — ${t.brief}`);
+    if (findings) {
+      const recent = await recentFindings(6);
+      lines.push("", "Recent:", ...recent.map((f) =>
+        `${f.name} (${new Date(f.created_at).toISOString().slice(0, 10)}): ${f.body_md.slice(0, 300)}`));
+    }
+    return lines.join("\n") || "Desk is empty.";
+  },
+});
+
+export const removeResearchTool = betaZodTool({
+  name: "remove_research_topic",
+  description: "Stop covering a topic.",
+  inputSchema: z.object({ name: z.string() }),
+  run: async ({ name }) => {
+    const topic = await removeResearchTopic(name);
+    return topic ? `Dropped "${topic.name}".` : `No topic matching "${name}".`;
+  },
+});
+
+export const proposeAutomationTool = betaZodTool({
+  name: "propose_automation",
+  description:
+    "Record something he keeps doing by hand that could be automated. Only call this with " +
+    "actual evidence from his captures — quote the repetition you saw. A speculative " +
+    "automation is worse than none, because it costs him the time to evaluate it.",
+  inputSchema: z.object({
+    title: z.string(),
+    observation: z.string().describe("The pattern actually seen, specifically"),
+    proposal: z.string().describe("What to build, concretely"),
+    effort: z.enum(["small", "medium", "large"]).optional(),
+    saves: z.string().optional().describe("Roughly what it saves, e.g. '20 min a week'"),
+    context: ContextKey.optional(),
+  }),
+  run: async (input) => {
+    await addCandidate({
+      title: input.title, observation: input.observation, proposal: input.proposal,
+      effort: input.effort ?? null, saves: input.saves ?? null, contextKey: input.context ?? null,
+    });
+    return `Proposed: ${input.title}.`;
+  },
+});
+
+export const listAutomationsTool = betaZodTool({
+  name: "list_automations",
+  description: "Automation candidates that have been proposed.",
+  inputSchema: z.object({ include_closed: z.boolean().optional() }),
+  run: async ({ include_closed }) => {
+    const rows = await listCandidates(include_closed ?? false);
+    if (rows.length === 0) return "Nothing proposed.";
+    return rows.map((c) =>
+      `- ${c.title} [${c.status}${c.effort ? `, ${c.effort}` : ""}${c.saves ? `, saves ${c.saves}` : ""}]\n` +
+      `  saw: ${c.observation}\n  do: ${c.proposal}`).join("\n");
+  },
+});
+
+export const decideAutomationTool = betaZodTool({
+  name: "decide_automation",
+  description: "Accept, reject or complete a proposed automation.",
+  inputSchema: z.object({
+    title: z.string(),
+    status: z.enum(["accepted", "rejected", "done"]),
+  }),
+  run: async ({ title, status }) => {
+    const row = await setCandidateStatus(title, status);
+    return row ? `"${row.title}" is now ${status}.` : `No candidate matching "${title}".`;
   },
 });
 
@@ -666,6 +768,12 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  addResearchTopicTool,
+  listResearchTool,
+  removeResearchTool,
+  proposeAutomationTool,
+  listAutomationsTool,
+  decideAutomationTool,
   recordMoneyTool,
   moneySummaryTool,
   affordTool,

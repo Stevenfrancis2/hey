@@ -5,6 +5,7 @@ import { query } from "../db/index.js";
 import { enrichCapture } from "./enrich.js";
 import { fireDueReminders, sendBrief } from "./brief.js";
 import { runArchive } from "./archive.js";
+import { runResearch, runScout } from "./research.js";
 import { config } from "../config.js";
 
 export const ENRICH_QUEUE = "capture.enrich";
@@ -13,6 +14,9 @@ const MORNING_QUEUE = "brief.morning";
 const WEEKLY_QUEUE = "brief.weekly";
 const ARCHIVE_QUEUE = "archive.nightly";
 const SWEEP_QUEUE = "capture.sweep";
+const DESK_DAILY_QUEUE = "research.daily";
+const DESK_WEEKLY_QUEUE = "research.weekly";
+const SCOUT_QUEUE = "automation.scout";
 
 export type EnrichJob = { captureId: string };
 
@@ -42,7 +46,8 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   // ── scheduled work ──────────────────────────────────────
   const chatId = config.telegram.ownerId;
 
-  for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE]) {
+  for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE,
+                      DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE]) {
     await instance.createQueue(name);
   }
 
@@ -59,6 +64,16 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.work(ARCHIVE_QUEUE, { batchSize: 1 }, async () => {
     await runArchive(api, chatId, false);
   });
+  await instance.work(DESK_DAILY_QUEUE, { batchSize: 1 }, async () => {
+    await runResearch(api, chatId, "daily");
+  });
+  await instance.work(DESK_WEEKLY_QUEUE, { batchSize: 1 }, async () => {
+    await runResearch(api, chatId, "weekly");
+  });
+  await instance.work(SCOUT_QUEUE, { batchSize: 1 }, async () => {
+    await runScout(api, chatId);
+  });
+
   // A capture is written before it is enqueued. If the process dies in between,
   // or the queue is briefly unavailable, the row would sit pending forever —
   // and a lost thought is the one failure this system cannot have.
@@ -79,6 +94,10 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(WEEKLY_QUEUE, "0 18 * * 0", {}, tz);
   await instance.schedule(ARCHIVE_QUEUE, "0 3 * * *", {}, tz);
   await instance.schedule(SWEEP_QUEUE, "*/10 * * * *", {}, tz);
+  // The desk is the one real cost driver, so it runs once a day, not hourly.
+  await instance.schedule(DESK_DAILY_QUEUE, "0 8 * * *", {}, tz);
+  await instance.schedule(DESK_WEEKLY_QUEUE, "0 17 * * 6", {}, tz);
+  await instance.schedule(SCOUT_QUEUE, "0 19 1 * *", {}, tz);
 
   boss = instance;
   log.info({ timezone: config.timezone }, "job runner started");

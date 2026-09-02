@@ -8,6 +8,7 @@ import { recall, recent } from "../memory/recall.js";
 import { findGoal, listTopics, progress, dueCards, listMaterials } from "../memory/study.js";
 import { summary as moneySummary, outstanding, affordability, recentEntries, listBills,
          money, fromMinor } from "../memory/money.js";
+import { listTopics as listResearchTopics, recentFindings, listCandidates } from "../memory/research.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -340,5 +341,41 @@ ${entries.length === 0 ? '<p class="empty">Nothing yet.</p>' : entries.map((e) =
   e.context_key ? ` · ${escapeHtml(e.context_key)}` : ""}${e.settled ? "" : " · UNSETTLED"}</time>
 ${e.direction === "in" ? "+" : "−"}${money(e.amount_minor, e.currency).replace("-", "")}${
   e.counterparty ? ` · ${escapeHtml(e.counterparty)}` : ""}${e.note ? ` — ${escapeHtml(e.note)}` : ""}</div>`).join("")}
+`);
+}
+
+
+export async function deskPage(): Promise<string> {
+  const [topics, findings, candidates] = await Promise.all([
+    listResearchTopics(), recentFindings(15), listCandidates(true),
+  ]);
+  const open = candidates.filter((c) => c.status === "proposed");
+
+  return page("Desk", "/desk", `
+<h1>Desk</h1>
+<p class="muted">Standing questions, answered on a cadence. Each digest is told what the last
+one said, so it reports what changed instead of restating the same landscape.</p>
+
+<h2>Tracking</h2>
+${topics.map((t) => `<div class="card"><div class="row">
+<h3>${escapeHtml(t.name)}</h3><span class="tag">${t.cadence}</span></div>
+<p>${escapeHtml(t.brief)}</p>
+<p style="margin-top:6px;font-size:.82rem">${t.last_run
+  ? `last run ${when(t.last_run)}` : "not run yet"}</p></div>`).join("")}
+
+<h2>Automation candidates${open.length ? ` · ${open.length} open` : ""}</h2>
+${candidates.length === 0
+  ? '<p class="empty">Nothing proposed yet. The scout runs monthly.</p>'
+  : candidates.map((c) => `<div class="card"><div class="row">
+<h3>${escapeHtml(c.title)}</h3>
+<span class="tag${c.status === "proposed" ? "" : " ok"}">${c.status}${c.effort ? ` · ${c.effort}` : ""}</span></div>
+<p><b>Saw:</b> ${escapeHtml(c.observation)}</p>
+<p style="margin-top:4px"><b>Do:</b> ${escapeHtml(c.proposal)}</p>
+${c.saves ? `<p style="margin-top:4px">Saves ${escapeHtml(c.saves)}</p>` : ""}</div>`).join("")}
+
+<h2>Recent findings</h2>
+${findings.length === 0 ? '<p class="empty">Nothing yet — the desk runs at 08:00 daily.</p>' : ""}
+${findings.map((f) => `<div class="hit"><time>${when(f.created_at)} · ${escapeHtml(f.name)}</time>
+${escapeHtml(f.body_md.slice(0, 900))}</div>`).join("")}
 `);
 }
