@@ -1,168 +1,149 @@
 # Second Steven
 
-A personal AI second brain that lives in Telegram.
+A second brain that lives in Telegram and on every screen you own.
 
-One chat. You throw everything at it — voice notes while your hands are in pizza dough,
-a business idea mid-drone-repair, a link, a photo of a broken arm on a quad. It captures,
-understands, files it into a graph of your life, and then works for you.
+You throw everything at it — spoken, typed, photographed, forwarded — and it files your whole
+life into one graph, then works for you while you're doing something else.
 
-**Start here:** [docs/MODULES.md](docs/MODULES.md) — the full system: two surfaces, ten rooms, and the order to build them in.
-
-[docs/PLAN.md](docs/PLAN.md) architecture · [docs/OPEN-QUESTIONS.md](docs/OPEN-QUESTIONS.md) decisions · [docs/BRAINDUMP-2026-09-01.md](docs/BRAINDUMP-2026-09-01.md) raw scope · [db/schema.sql](db/schema.sql) data model
+**Start here:** [docs/MODULES.md](docs/MODULES.md) — the system · [docs/PLAN.md](docs/PLAN.md) — architecture ·
+[docs/INTERFACE.md](docs/INTERFACE.md) — why Telegram *and* a console · [docs/export/](docs/export/) — the dossier
 
 ---
 
-## Status — Phase 1 is built
+## What works today
 
-Capture, understanding and the agent all work end to end.
-
-**You never choose between noting something and asking something.** Everything you send is
-stored. If you actually asked a question or wanted something done, it answers — otherwise
-it stays quiet. There is no mode to switch.
-
-| Works today | |
+| | |
 |---|---|
-| Capture | Text, voice, photo, document, forwarded messages |
-| Acknowledgement | A 👌 reaction, under two seconds — nothing waits on a model |
-| Transcription | Voice notes via Groq Whisper, replied back so a misheard word is obvious |
-| Indexing | Chunked and embedded with Voyage, in a background job |
-| Search | `/recall` — hybrid vector + full-text with reciprocal rank fusion |
-| Understanding | Every capture classified into one of nine rooms, with intent and urgency |
-| The agent | Claude Opus 5 with adaptive thinking, eight tools, and hosted web search |
-| Tasks | Created from what you say, closed by loose title match — say it how you'd say it |
-| Reminders | Natural language in, absolute time out, fired on a minute tick |
-| Briefs | 06:30 daily, 18:00 Sunday weekly, in your timezone |
-| Projects | Work with deadlines and an overdue count, across every room |
-| Watchlist | Stocks, crypto and themes — tracked with the reasoning, not just the ticker |
-| **Archive** | **Everything, as plain-text files, delivered to you nightly at 03:00 and on `/export`** |
-| Privacy | Single user. Any other Telegram account is silently ignored. |
+| **Capture** | Text, voice, photo, document, forwards. A 👌 reaction in under two seconds. |
+| **Voice** | Transcribed and replied back, so a misheard word is obvious immediately. |
+| **Attribution** | Forward your father's voice note and it's stored as *his* words, searchable that way. |
+| **Understanding** | Every capture classified into one of nine rooms, with intent and urgency. |
+| **The agent** | Claude Opus 5, adaptive thinking, 43 tools, hosted web search. |
+| **Search** | Hybrid vector + full-text with reciprocal rank fusion. |
+| **Tasks** | Created from what you say, closed by loose title match. |
+| **Projects** | Deadlines, clients, overdue counts, across every room. |
+| **Reminders** | Natural language in, absolute time out, claimed exactly once. |
+| **Study** | A plan ordered by prerequisite, sized to your real hours, with spaced-repetition review. |
+| **Money** | One book per business, receivables that chase themselves, "can I afford this". |
+| **Flying** | Per-aircraft windows from wind, gusts, rain and daylight. |
+| **Fleet** | Your quads, radios and printers — advice is about what you own. |
+| **Decisions** | Options with payback, and the assumptions written down as assumptions. |
+| **Body** | Training, weight, calories. |
+| **Research desk** | Six standing topics, told what the last digest said so it reports what changed. |
+| **Automation scout** | Monthly, finds work you keep doing by hand and proposes fixing it. |
+| **The console** | Twelve pages, every device, installable, magic-link login. |
+| **Archive** | Everything as plain-text files, nightly and on demand. |
+| **Privacy** | Single user. Every other Telegram account is silently ignored. |
+
+### Commands
 
 ```
-/recall <anything>   search everything you've ever sent
-/tasks               what's open, grouped by room
-/brief               today's brief, now
-/recent              the last ten things
-/stats               what's in the brain
-/projects            projects and deadlines
-/export              everything, as files, right now
-/costs               what it's spending today and this month
+/money  /study  /fly  /gear  /body  /land  /desk  /scout
+/recall <query>   /tasks   /projects   /brief
+/export           /login    /costs     /stats  /recent
 ```
-
-### Nothing here is trapped
-
-At 03:00 every night — and any time you type `/export` — the whole system is written out
-as two files and sent to you on Telegram:
-
-- **`second-steven-YYYY-MM-DD.md`** — your profile, every project, every capture grouped by
-  room *and* by day, all tasks and reminders, the watchlist, and the full conversation
-  history. Plain text. It opens on anything, with no software, no server and no account.
-- **`second-steven-YYYY-MM-DD.json`** — the same data, machine-readable, for rebuilding.
-
-The database is the working store. **These files are the durable copy.** If the server,
-the database and the bot all disappear tomorrow, the last archive is enough to pick up
-exactly where you left off — and none of the thinking has to happen twice.
-
-They arrive over Telegram deliberately: no bucket to configure, no extra credentials to
-leak, and they land somewhere you already have on every device.
 
 ### The nine rooms
 
 `cligli` · `drones` · `royal_pizza` · `work` · `bank_ai` · `finance` · `land` · `body` · `personal`
 
-Every capture lands in exactly one. Money talk goes to `finance` even when it names another
-business, so the books stay in one place.
+Money talk goes to `finance` even when it names another business, so the books stay in one place.
 
-### The design rule
+---
+
+## Two design rules everything follows
 
 **The write path is dumb and instant. The read path is smart and slow.** A message is one
-`INSERT` plus a queued job, then it acknowledges. Transcription, chunking and embedding all
-happen in a pg-boss worker seconds later. You are never waiting on a model — which is the
-whole reason this gets used instead of abandoned.
+database insert plus a queued job, then it acknowledges. Transcription, classification and
+embedding happen seconds later in the background. You never wait on a model — which is the
+only reason this survives being used one-handed.
+
+**You never choose between noting something and asking something.** Everything is stored, and
+it replies only when you actually asked. There is no mode to switch.
+
+## Nothing here is trapped
+
+At 03:00 nightly, and any time you type `/export`, the whole system is written out and sent to
+you on Telegram:
+
+- **`.md`** — profile, projects, every capture by room *and* by day, tasks, reminders,
+  watchlist, full conversation history. Opens on anything, needs nothing.
+- **`.json`** — the same data, machine-readable, for rebuilding.
+
+The database is the working store. **These files are the durable copy.** Delivered over
+Telegram deliberately: no bucket to configure, no credentials to leak, and they land somewhere
+you already have on every device.
+
+There is also **[the dossier](docs/export/second-steven-dossier.pdf)** — the whole brainstorm,
+organised, with your own words verbatim at the back. Hand that to anyone and nothing has to be
+thought through twice.
 
 ---
 
 ## Running it
 
-Needs Node 22 and a Postgres 17 with `pgvector`.
+Node 22 and a Postgres 17 with `pgvector`.
 
 ```bash
 npm install
 cp .env.example .env      # then fill it in
-npm run migrate           # idempotent; also runs automatically on boot
+npm run migrate           # idempotent; also runs on every boot
 npm run dev               # long-polling
 ```
-
-Four credentials are required:
 
 | Variable | Where from |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | [@BotFather](https://t.me/BotFather) |
-| `TELEGRAM_OWNER_ID` | [@userinfobot](https://t.me/userinfobot) — your numeric id. Everyone else is ignored. |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) — the brain |
+| `TELEGRAM_OWNER_ID` | [@userinfobot](https://t.me/userinfobot) — everyone else is ignored |
 | `DATABASE_URL` | Neon, Supabase, or local Postgres with `CREATE EXTENSION vector` |
+| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) |
 | `VOYAGE_API_KEY` | [voyageai.com](https://www.voyageai.com) — embeddings |
-| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) — Whisper transcription |
+| `GROQ_API_KEY` | [console.groq.com](https://console.groq.com) — Whisper |
+| `LATITUDE` / `LONGITUDE` | Where you fly. Defaults to Beirut. Weather needs no key. |
 
-Setting `PUBLIC_URL` switches the bot from long-polling to webhooks; leave it unset locally.
-
-### Deploying
+Setting `PUBLIC_URL` switches from long-polling to webhooks and enables `/login`.
 
 ```bash
 fly launch --no-deploy
-fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_OWNER_ID=... \
-                DATABASE_URL=... VOYAGE_API_KEY=... GROQ_API_KEY=... \
+fly secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_OWNER_ID=... DATABASE_URL=... \
+                ANTHROPIC_API_KEY=... VOYAGE_API_KEY=... GROQ_API_KEY=... \
                 TELEGRAM_WEBHOOK_SECRET="$(openssl rand -hex 16)" \
                 PUBLIC_URL=https://<app>.fly.dev
 fly deploy
 ```
 
-`/health` checks the database and reports polling vs. webhook mode. The schema is applied
-on every boot before the HTTP server starts.
+Then send `/login` and open the link on whichever device you're holding.
 
----
+## Scheduled
+
+| When | What |
+|---|---|
+| every minute | Due reminders fire |
+| every 10 min | Sweep for captures stranded between insert and enqueue |
+| 06:30 daily | Morning brief |
+| 08:00 daily | Research desk — daily topics |
+| 03:00 nightly | Archive delivered over Telegram |
+| Sat 17:00 | Research desk — weekly topics |
+| Sun 18:00 | Weekly review |
+| 1st monthly | Automation scout |
 
 ## Layout
 
 ```
 src/
-├── config.ts          env parsing, fails loudly on a missing credential
-├── bot/               grammY handlers — the whole write path
-├── agent/
-│   ├── client.ts      Anthropic client + per-call cost accounting
-│   ├── classify.ts    structured-output routing into rooms
-│   ├── prompt.ts      system prompt; stable block cached, clock kept out of it
-│   ├── tools.ts       the tool belt
-│   └── run.ts         the tool-runner loop, incl. pause_turn resume
-├── memory/
-│   ├── capture.ts     the one INSERT
-│   ├── chunk.ts       sentence-aware splitting
-│   ├── embed.ts       Voyage
-│   ├── index.ts       chunk + embed + store
-│   └── recall.ts      hybrid search, reciprocal rank fusion
-├── jobs/              pg-boss queues, enrichment worker, briefs and cron
-├── integrations/      transcription, Telegram file download
-├── db/                pool, helpers, migration
-└── web/               Fastify — health and the Telegram webhook
+├── bot/         grammY handlers — the write path
+├── agent/       prompt, classifier, 43 tools, the tool-runner loop
+├── memory/      capture · chunk · embed · recall · tasks · reminders · projects
+│                watchlist · gear · study · money · decisions · body · research
+├── jobs/        pg-boss queues, enrichment, briefs, archive, desk, scout
+├── integrations/ transcription, weather, Telegram files
+├── web/         Fastify — console (12 pages), auth, webhook
+├── archive/     the plain-text mirror
+└── db/          pool, helpers, idempotent migration
 ```
-
-## The five life contexts
-
-Seeded in `contexts` on first migration; Phase 1 classifies every capture into one.
-
-| Context | Tracks |
-|---|---|
-| `cligli` | printing, assembly, orders, suppliers, ideas |
-| `drones` | FPV building, repairs, training, DCL, content |
-| `royal_pizza` | dough logs, recipes, helping dad |
-| `work` | the remote automation job |
-| `personal` | health, weather and flying windows, news, money |
 
 ## Next
 
-**The study planner**, and the console shell it brings with it — a study plan is a calendar
-and a checklist, which is a screen rather than a chat message. There is a bank project with
-a real deadline, so this one is next.
-
-Then the finance ledger, then importing the Raspberry Pi farm manager. Why the console is
-not optional, and why the Pi keeps its printers, is in
-[docs/INTERFACE.md](docs/INTERFACE.md).
+The Raspberry Pi farm manager — it stays on the Pi, because the printers are on your local
+network. It gets an outbound sync instead. Then Google Drive and Calendar, then Instagram Ads
+(request API access early — approval takes weeks).
