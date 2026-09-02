@@ -7,6 +7,11 @@ import { createProject, listProjects, updateProject } from "../memory/projects.j
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
 import {
+  findDecision, createDecision, upsertOption, addAssumption,
+  listOptions, listAssumptions, listDecisions, decide, optionLine,
+} from "../memory/decisions.js";
+import { logBody, today as bodyToday, week as bodyWeek } from "../memory/body.js";
+import {
   listTopics as listResearchTopics, addTopic as addResearchTopic,
   removeTopic as removeResearchTopic, recentFindings,
   addCandidate, listCandidates, setCandidateStatus,
@@ -261,6 +266,137 @@ export const removeWatchTool = betaZodTool({
   run: async ({ name }) => {
     const item = await removeFromWatchlist(name);
     return item ? `Stopped watching ${item.name}.` : `Nothing on the watchlist matching "${name}".`;
+  },
+});
+
+// ── decisions ─────────────────────────────────────────────
+export const decisionTool = betaZodTool({
+  name: "update_decision",
+  description:
+    "Build up a dossier on a big decision — the land, a machine, a client. Add or update an " +
+    "option with its real numbers, and record the assumptions those numbers rest on. " +
+    "ALWAYS record the assumption alongside a number: a cost with no stated basis is a guess " +
+    "wearing a suit, and in six months he will not remember which was which.",
+  inputSchema: z.object({
+    decision: z.string().describe("Which decision, e.g. '600 sqm land'"),
+    question: z.string().optional().describe("Only when creating it"),
+    context: ContextKey.optional(),
+    option: z.object({
+      name: z.string(),
+      summary: z.string().optional(),
+      upside: z.string().optional(),
+      downside: z.string().optional(),
+      cost: z.number().optional().describe("What it takes to do"),
+      annual_return: z.number().optional().describe("What it returns per year, if knowable"),
+      confidence: z.number().int().min(1).max(5).optional().describe("Confidence in the NUMBERS"),
+    }).optional(),
+    assumptions: z.array(z.object({
+      claim: z.string(),
+      basis: z.string().optional().describe("Where it came from — a source, a quote, a guess"),
+      confidence: z.number().int().min(1).max(5).optional(),
+    })).optional(),
+  }),
+  run: async (input) => {
+    let d = await findDecision(input.decision);
+    if (!d) {
+      d = await createDecision({
+        name: input.decision, question: input.question ?? input.decision,
+        contextKey: input.context ?? null,
+      });
+    }
+    if (input.option) {
+      await upsertOption(d.id, {
+        name: input.option.name, summary: input.option.summary ?? null,
+        upside: input.option.upside ?? null, downside: input.option.downside ?? null,
+        cost: input.option.cost ?? null, annualReturn: input.option.annual_return ?? null,
+        confidence: input.option.confidence ?? null,
+      });
+    }
+    for (const a of input.assumptions ?? []) {
+      await addAssumption(d.id, { claim: a.claim, basis: a.basis ?? null, confidence: a.confidence ?? null });
+    }
+    const opts = await listOptions(d.id);
+    return `${d.name}: ${opts.length} option${opts.length === 1 ? "" : "s"}, ` +
+      `${(await listAssumptions(d.id)).length} assumptions recorded.`;
+  },
+});
+
+export const readDecisionTool = betaZodTool({
+  name: "read_decision",
+  description:
+    "The current state of a decision — every option with its numbers and payback, and every " +
+    "assumption with how confident it is. Read this before advising on it, and challenge the " +
+    "weak assumptions rather than the conclusions.",
+  inputSchema: z.object({ decision: z.string().optional() }),
+  run: async ({ decision }) => {
+    const d = await findDecision(decision ?? null);
+    if (!d) return "No decisions on file. " + (await listDecisions()).map((x) => x.name).join(", ");
+    const [opts, assumptions] = await Promise.all([listOptions(d.id), listAssumptions(d.id)]);
+    return [
+      `${d.name} — ${d.question}`,
+      d.chosen ? `DECIDED: ${d.chosen}` : "Still open.",
+      "",
+      "Options:",
+      ...(opts.length ? opts.map((o) => `  ${optionLine(o)}` +
+        `${o.upside ? `\n    + ${o.upside}` : ""}${o.downside ? `\n    - ${o.downside}` : ""}`)
+        : ["  none yet"]),
+      "",
+      "Assumptions (weakest first):",
+      ...(assumptions.length ? assumptions.map((a) =>
+        `  [${a.confidence ?? "?"}/5] ${a.claim}${a.basis ? ` — ${a.basis}` : " — NO BASIS RECORDED"}`)
+        : ["  none yet"]),
+    ].join("\n");
+  },
+});
+
+export const decideTool = betaZodTool({
+  name: "record_decision",
+  description: "Record which option he chose, and close the decision.",
+  inputSchema: z.object({ decision: z.string(), chosen: z.string() }),
+  run: async ({ decision, chosen }) => {
+    const d = await decide(decision, chosen);
+    return d ? `${d.name}: chose ${d.chosen}.` : `No decision matching "${decision}".`;
+  },
+});
+
+// ── body ──────────────────────────────────────────────────
+export const logBodyTool = betaZodTool({
+  name: "log_body",
+  description:
+    "Log a workout, a weight, or food. He will report casually — 'chest and back, 50 min', " +
+    "'chicken and rice maybe 700 cal'. Estimate calories and protein when he gives food " +
+    "without numbers, and say that you estimated.",
+  inputSchema: z.object({
+    kind: z.enum(["workout", "weight", "meal", "note"]),
+    detail: z.string().optional(),
+    calories: z.number().int().optional(),
+    protein_g: z.number().int().optional(),
+    weight_kg: z.number().optional(),
+    minutes: z.number().int().optional(),
+  }),
+  run: async (input) => {
+    await logBody({
+      kind: input.kind, detail: input.detail ?? null, calories: input.calories ?? null,
+      proteinG: input.protein_g ?? null, weightKg: input.weight_kg ?? null,
+      minutes: input.minutes ?? null,
+    });
+    const t = await bodyToday();
+    return `Logged. Today: ${t.calories} cal, ${t.protein}g protein, ` +
+      `${t.workouts} workout${t.workouts === 1 ? "" : "s"} (${t.minutes} min).`;
+  },
+});
+
+export const bodyStatusTool = betaZodTool({
+  name: "body_status",
+  description: "Today and the last seven days — training, calories, weight.",
+  inputSchema: z.object({}),
+  run: async () => {
+    const [t, w] = await Promise.all([bodyToday(), bodyWeek()]);
+    return [
+      `Today: ${t.calories} cal, ${t.protein}g protein, ${t.workouts} workouts (${t.minutes} min)`,
+      `7 days: ${w.workouts} workouts, ${w.minutes} min total, ~${w.avgCalories} cal/day avg`,
+      w.latestWeight !== null ? `Latest weight: ${w.latestWeight} kg` : "No weight logged yet",
+    ].join("\n");
   },
 });
 
@@ -768,6 +904,11 @@ export const clientTools = [
   addWatchTool,
   listWatchTool,
   removeWatchTool,
+  decisionTool,
+  readDecisionTool,
+  decideTool,
+  logBodyTool,
+  bodyStatusTool,
   addResearchTopicTool,
   listResearchTool,
   removeResearchTool,

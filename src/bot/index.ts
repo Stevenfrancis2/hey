@@ -15,6 +15,8 @@ import { listGear } from "../memory/gear.js";
 import { findGoal, listTopics, progress, dueCards } from "../memory/study.js";
 import { summary as moneySummary, outstanding, affordability, money } from "../memory/money.js";
 import { runResearch, runScout } from "../jobs/research.js";
+import { today as bodyToday, week as bodyWeek } from "../memory/body.js";
+import { listDecisions, findDecision, listOptions, listAssumptions, optionLine } from "../memory/decisions.js";
 
 export const bot = new Bot(config.telegram.token);
 
@@ -96,6 +98,8 @@ bot.command("start", async (ctx) => {
       "I keep everything, and I answer when you actually asked.",
       "",
       "<b>/recall</b> &lt;anything&gt; — search everything you've ever sent",
+      "<b>/body</b> — training and food",
+      "<b>/land</b> — the 600 sqm dossier",
       "<b>/desk</b> — run the research desk now",
       "<b>/money</b> — the books, and what you can spend",
       "<b>/study</b> — the plan, and whether you're on track",
@@ -115,8 +119,49 @@ bot.command("start", async (ctx) => {
 });
 
 bot.command("help", (ctx) =>
-  ctx.reply("/money · /study · /fly · /gear · /desk · /recall <q> · /tasks · /projects · /brief · /export · /login"),
+  ctx.reply(
+    "/money · /study · /fly · /gear · /body · /land · /desk · /recall <q> · /tasks · /projects · /brief · /export · /login",
+  ),
 );
+
+bot.command("body", async (ctx) => {
+  const [t, w] = await Promise.all([bodyToday(), bodyWeek()]);
+  await ctx.reply(
+    [
+      `<b>Today</b>  ${t.calories} cal · ${t.protein}g protein`,
+      `${t.workouts} workout${t.workouts === 1 ? "" : "s"} · ${t.minutes} min`,
+      "",
+      `<b>7 days</b>  ${w.workouts} sessions · ${w.minutes} min · ~${w.avgCalories} cal/day`,
+      w.latestWeight !== null ? `weight ${w.latestWeight} kg` : "",
+    ].filter(Boolean).join("\n"),
+    { parse_mode: "HTML" },
+  );
+});
+
+bot.command("land", async (ctx) => {
+  const d = await findDecision("land");
+  if (!d) {
+    const all = await listDecisions();
+    await ctx.reply(all.length ? all.map((x) => `· ${x.name}`).join("\n") : "No decisions on file.");
+    return;
+  }
+  const [opts, assumptions] = await Promise.all([listOptions(d.id), listAssumptions(d.id)]);
+  const weak = assumptions.filter((a) => (a.confidence ?? 0) <= 2 || !a.basis);
+  await ctx.reply(
+    [
+      `<b>${escapeHtml(d.name)}</b>`,
+      escapeHtml(d.question),
+      "",
+      opts.length ? "<b>Options</b>" : "No options worked out yet — ask me to research them.",
+      ...opts.map((o) => `· ${escapeHtml(optionLine(o))}`),
+      "",
+      assumptions.length
+        ? `${assumptions.length} assumptions on file${weak.length ? `, <b>${weak.length} weak or unsourced</b>` : ""}`
+        : "No assumptions recorded yet.",
+    ].join("\n"),
+    { parse_mode: "HTML" },
+  );
+});
 
 bot.command("desk", async (ctx) => {
   await ctx.replyWithChatAction("typing");

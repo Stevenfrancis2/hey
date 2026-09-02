@@ -14,6 +14,8 @@ const NAV = [
   ["/money", "Money"],
   ["/rooms", "Rooms"],
   ["/watchlist", "Watchlist"],
+  ["/decisions", "Decisions"],
+  ["/body", "Body"],
   ["/desk", "Desk"],
   ["/search", "Search"],
   ["/chat", "Ask"],

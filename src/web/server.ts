@@ -12,7 +12,7 @@ import {
 import { MANIFEST } from "./layout.js";
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
-  watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage,
+  watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
@@ -76,6 +76,8 @@ export async function startServer() {
   app.get("/rooms", async (_r, reply) => reply.type("text/html").send(await roomsPage()));
   app.get<{ Params: { key: string } }>("/room/:key", async (request, reply) =>
     reply.type("text/html").send(await roomPage(request.params.key)));
+  app.get("/decisions", async (_r, reply) => reply.type("text/html").send(await decisionsPage()));
+  app.get("/body", async (_r, reply) => reply.type("text/html").send(await bodyPage()));
   app.get("/desk", async (_r, reply) => reply.type("text/html").send(await deskPage()));
   app.get("/money", async (_r, reply) => reply.type("text/html").send(await moneyPage()));
   app.get("/study", async (_r, reply) => reply.type("text/html").send(await studyPage()));

@@ -498,4 +498,67 @@ CREATE TABLE IF NOT EXISTS automation_candidates (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- ─────────────────────────────────────────────────────────────
+-- DECISIONS — a dossier for the big ones, with the assumptions
+-- written down where they can be argued with
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS decisions (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name       text UNIQUE NOT NULL,
+  question   text NOT NULL,
+  context_id uuid REFERENCES contexts(id),
+  status     text NOT NULL DEFAULT 'open',   -- open|decided|dropped
+  chosen     text,
+  decided_on date,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS decision_options (
+  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  decision_id uuid NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+  name        text NOT NULL,
+  summary     text,
+  upside      text,
+  downside    text,
+  cost_minor  bigint,           -- what it takes to do
+  return_minor bigint,          -- what it returns per year, if known
+  currency    text NOT NULL DEFAULT 'USD',
+  confidence  smallint,         -- 1-5 in the numbers, not the option
+  UNIQUE (decision_id, name)
+);
+
+-- The part that matters: every number above rests on something.
+CREATE TABLE IF NOT EXISTS decision_assumptions (
+  id          uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  decision_id uuid NOT NULL REFERENCES decisions(id) ON DELETE CASCADE,
+  claim       text NOT NULL,
+  basis       text,             -- where it came from
+  confidence  smallint,         -- 1-5
+  checked_on  date,
+  UNIQUE (decision_id, claim)
+);
+
+INSERT INTO decisions (name, question, context_id) VALUES
+  ('600 sqm land',
+   'Guesthouse, build his own house, or hold the plot? Needs build cost per sqm, local guesthouse occupancy and nightly rates, permitting, and financing.',
+   (SELECT id FROM contexts WHERE key='land'))
+ON CONFLICT (name) DO NOTHING;
+
+-- ─────────────────────────────────────────────────────────────
+-- BODY — gym and food
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS body_log (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind       text NOT NULL,     -- workout|weight|meal|note
+  happened_on date NOT NULL DEFAULT current_date,
+  detail     text,
+  calories   integer,
+  protein_g  integer,
+  weight_kg  numeric(5,2),
+  minutes    integer,
+  capture_id uuid REFERENCES captures(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS body_log_when_idx ON body_log (happened_on DESC, kind);
+
 -- pg-boss creates and owns its own schema in this same database.

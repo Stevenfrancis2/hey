@@ -9,6 +9,8 @@ import { findGoal, listTopics, progress, dueCards, listMaterials } from "../memo
 import { summary as moneySummary, outstanding, affordability, recentEntries, listBills,
          money, fromMinor } from "../memory/money.js";
 import { listTopics as listResearchTopics, recentFindings, listCandidates } from "../memory/research.js";
+import { listDecisions, findDecision, listOptions, listAssumptions, payback } from "../memory/decisions.js";
+import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -377,5 +379,64 @@ ${c.saves ? `<p style="margin-top:4px">Saves ${escapeHtml(c.saves)}</p>` : ""}</
 ${findings.length === 0 ? '<p class="empty">Nothing yet — the desk runs at 08:00 daily.</p>' : ""}
 ${findings.map((f) => `<div class="hit"><time>${when(f.created_at)} · ${escapeHtml(f.name)}</time>
 ${escapeHtml(f.body_md.slice(0, 900))}</div>`).join("")}
+`);
+}
+
+
+export async function decisionsPage(): Promise<string> {
+  const decisions = await listDecisions();
+  const open = decisions.find((d) => d.status === "open");
+  const detail = open ? await findDecision(open.name) : null;
+  const [opts, assumptions] = detail
+    ? await Promise.all([listOptions(detail.id), listAssumptions(detail.id)])
+    : [[], []];
+
+  return page("Decisions", "/decisions", `
+<h1>Decisions</h1>
+<p class="muted">The assumptions are the point. Numbers on a page look equally solid whether
+they came from a quote or a guess — writing down which is which is what makes the dossier
+worth having six months later.</p>
+
+${decisions.length === 0 ? '<p class="empty">Nothing on file.</p>' : ""}
+${decisions.map((d) => `<div class="card"><div class="row">
+<h3>${escapeHtml(d.name)}</h3>
+<span class="tag${d.status === "open" ? "" : " ok"}">${d.chosen ? escapeHtml(d.chosen) : d.status}</span></div>
+<p>${escapeHtml(d.question)}</p></div>`).join("")}
+
+${detail && opts.length ? `<h2>Options — ${escapeHtml(detail.name)}</h2>${opts.map((o) => `
+<div class="card"><div class="row"><h3>${escapeHtml(o.name)}</h3>
+<span class="tag">${payback(o)}</span></div>
+${o.summary ? `<p>${escapeHtml(o.summary)}</p>` : ""}
+${o.upside ? `<p style="margin-top:4px">+ ${escapeHtml(o.upside)}</p>` : ""}
+${o.downside ? `<p style="margin-top:2px">− ${escapeHtml(o.downside)}</p>` : ""}
+${o.confidence ? `<p style="margin-top:4px;font-size:.82rem">confidence in the numbers ${o.confidence}/5</p>` : ""}
+</div>`).join("")}` : ""}
+
+${detail && assumptions.length ? `<h2>Assumptions — weakest first</h2>${assumptions.map((a) => `
+<div class="card" style="border-left:2px solid var(--${(a.confidence ?? 0) <= 2 ? "signal" : "line"})">
+<div class="row"><h3>${escapeHtml(a.claim)}</h3>
+<span class="tag${(a.confidence ?? 0) <= 2 ? " due" : ""}">${a.confidence ?? "?"}/5</span></div>
+<p>${a.basis ? escapeHtml(a.basis) : "<b>No basis recorded — this is a guess.</b>"}</p></div>`).join("")}` : ""}
+`);
+}
+
+export async function bodyPage(): Promise<string> {
+  const [t, w, recent] = await Promise.all([bodyToday(), bodyWeek(), recentBody(30)]);
+  return page("Body", "/body", `
+<h1>Body</h1>
+<div class="grid">
+  <div class="card"><div class="row"><h3>Today</h3><span class="tag">${t.calories} cal</span></div>
+    <p>${t.protein}g protein · ${t.workouts} workout${t.workouts === 1 ? "" : "s"} · ${t.minutes} min</p></div>
+  <div class="card"><div class="row"><h3>This week</h3><span class="tag">${w.workouts} sessions</span></div>
+    <p>${w.minutes} min total · ~${w.avgCalories} cal/day</p></div>
+  <div class="card"><div class="row"><h3>Weight</h3>
+    <span class="tag">${w.latestWeight !== null ? `${w.latestWeight} kg` : "—"}</span></div>
+    <p>latest logged</p></div>
+</div>
+<h2>Recent</h2>
+${recent.length === 0 ? '<p class="empty">Nothing logged. Tell the bot: "chest and back, 50 min".</p>' : ""}
+${recent.map((r) => `<div class="hit"><time>${new Date(r.happened_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${r.kind}</time>
+${escapeHtml(r.detail ?? "")}${r.calories ? ` · ${r.calories} cal` : ""}${r.protein_g ? ` · ${r.protein_g}g protein` : ""}${
+  r.minutes ? ` · ${r.minutes} min` : ""}${r.weight_kg ? ` · ${r.weight_kg} kg` : ""}</div>`).join("")}
 `);
 }
