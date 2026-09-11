@@ -5,6 +5,7 @@ import { buildSystem } from "./prompt.js";
 import { config } from "../config.js";
 import { one, query } from "../db/index.js";
 import { log } from "../log.js";
+import { asProviderError } from "../integrations/provider-errors.js";
 
 const HISTORY_TURNS = 24;
 const MAX_ITERATIONS = 12;
@@ -88,19 +89,38 @@ export async function respond(chatId: number, userText: string): Promise<string>
   let cacheRead = 0;
   let cacheWrite = 0;
 
-  for await (const message of runner) {
-    final = message;
-    tokensIn += message.usage.input_tokens ?? 0;
-    tokensOut += message.usage.output_tokens ?? 0;
-    cacheRead += message.usage.cache_read_input_tokens ?? 0;
-    cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
+  try {
+    for await (const message of runner) {
+      final = message;
+      tokensIn += message.usage.input_tokens ?? 0;
+      tokensOut += message.usage.output_tokens ?? 0;
+      cacheRead += message.usage.cache_read_input_tokens ?? 0;
+      cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
 
-    // A server tool (web search) can pause the turn. The runner only resumes
-    // after a *client* tool result, so without this the answer is silently
-    // truncated — no error, no warning.
-    if (message.stop_reason === "pause_turn") {
-      runner.pushMessages({ role: "assistant", content: message.content });
+      // A server tool (web search) can pause the turn. The runner only resumes
+      // after a *client* tool result, so without this the answer is silently
+      // truncated — no error, no warning.
+      if (message.stop_reason === "pause_turn") {
+        runner.pushMessages({ role: "assistant", content: message.content });
+      }
     }
+  } catch (err) {
+    // Whatever partial usage the turn accrued is still real money; record it
+    // before the error leaves, or an out-of-credit day reports as free.
+    if (tokensIn + tokensOut + cacheRead + cacheWrite > 0) {
+      await recordUsage(
+        "chat",
+        config.anthropic.model,
+        {
+          input_tokens: tokensIn,
+          output_tokens: tokensOut,
+          cache_read_input_tokens: cacheRead,
+          cache_creation_input_tokens: cacheWrite,
+        },
+        Date.now() - started,
+      );
+    }
+    throw asProviderError("anthropic", err) ?? err;
   }
 
   await recordUsage(
@@ -156,15 +176,19 @@ export async function generate(instruction: string, effort: "low" | "high" = "hi
   let cacheRead = 0;
   let cacheWrite = 0;
 
-  for await (const message of runner) {
-    final = message;
-    tokensIn += message.usage.input_tokens ?? 0;
-    tokensOut += message.usage.output_tokens ?? 0;
-    cacheRead += message.usage.cache_read_input_tokens ?? 0;
-    cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
-    if (message.stop_reason === "pause_turn") {
-      runner.pushMessages({ role: "assistant", content: message.content });
+  try {
+    for await (const message of runner) {
+      final = message;
+      tokensIn += message.usage.input_tokens ?? 0;
+      tokensOut += message.usage.output_tokens ?? 0;
+      cacheRead += message.usage.cache_read_input_tokens ?? 0;
+      cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
+      if (message.stop_reason === "pause_turn") {
+        runner.pushMessages({ role: "assistant", content: message.content });
+      }
     }
+  } catch (err) {
+    throw asProviderError("anthropic", err) ?? err;
   }
 
   await recordUsage(

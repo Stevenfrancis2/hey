@@ -43,12 +43,13 @@ in one flow. Otherwise use the tabs directly.
   Workspace organisation. External with only your own account is correct here.)*
 
 **Data Access** — you do not need to add scopes by hand. The app asks for what
-it needs at connect time. For reference, it requests exactly two:
+it needs at connect time. For reference, it requests exactly three:
 
 | Scope | Why |
 |---|---|
 | `drive.readonly` | Read-only. It indexes your files; it never writes or deletes. |
 | `calendar` | Read *and* write, so it can create events you ask for. |
+| `userinfo.email` | So the bot can tell you *which* account it connected as. |
 
 ## 4 · Publish it — do not leave it in Testing
 

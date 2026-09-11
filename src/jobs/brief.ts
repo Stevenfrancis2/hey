@@ -3,6 +3,7 @@ import { generate } from "../agent/run.js";
 import { claimDueReminders } from "../memory/reminders.js";
 import { query } from "../db/index.js";
 import { log } from "../log.js";
+import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 export async function fireDueReminders(api: Api, chatId: number): Promise<number> {
   const due = await claimDueReminders();
@@ -43,7 +44,17 @@ export async function sendBrief(
   kind: "morning" | "weekly",
 ): Promise<void> {
   const instruction = kind === "morning" ? MORNING : WEEKLY;
-  const body = await generate(instruction, kind === "weekly" ? "high" : "low");
+
+  let body: string;
+  try {
+    body = await generate(instruction, kind === "weekly" ? "high" : "low");
+  } catch (err) {
+    // A brief that just never arrives reads as the bot being dead. He should
+    // find out from the 06:30 slot itself, not by noticing it stopped.
+    log.error({ err, kind }, "brief failed");
+    if (isProviderError(err)) await notifyOutage(api, chatId, err);
+    return;
+  }
   if (!body.trim()) return;
 
   await query(`INSERT INTO briefs (kind, body_md, sent_at) VALUES ($1, $2, now())`, [kind, body]);

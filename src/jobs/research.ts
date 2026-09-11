@@ -2,6 +2,7 @@ import type { Api } from "grammy";
 import { generate } from "../agent/run.js";
 import { dueTopics, saveFinding, markRun, lastFinding } from "../memory/research.js";
 import { log } from "../log.js";
+import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 /**
  * Standing questions, answered on a cadence. The previous answer is fed back in
@@ -49,6 +50,7 @@ export async function runResearch(
       }
     } catch (err) {
       log.error({ err, topic: topic.name }, "research topic failed");
+      if (isProviderError(err)) await notifyOutage(api, chatId, err);
     }
   }
 
@@ -92,5 +94,6 @@ export async function runScout(api: Api, chatId: number): Promise<void> {
     log.info("automation scout ran");
   } catch (err) {
     log.error({ err }, "automation scout failed");
+    if (isProviderError(err)) await notifyOutage(api, chatId, err);
   }
 }

@@ -3,6 +3,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { anthropic, recordUsage } from "./client.js";
 import { config } from "../config.js";
 import { query } from "../db/index.js";
+import { asProviderError } from "../integrations/provider-errors.js";
 
 export const CONTEXT_KEYS = [
   "cligli",
@@ -62,8 +63,13 @@ export async function classify(text: string): Promise<Classification | null> {
     });
     await recordUsage("classify", config.anthropic.fastModel, response.usage, Date.now() - started);
     return response.parsed_output ?? null;
-  } catch {
+  } catch (err) {
     // Classification is an enhancement. A capture is never lost because it failed.
+    // An outage is the exception: swallowing it here means an out-of-credit day
+    // classifies nothing, so nothing is ever a question, so he is answered by
+    // silence and never told why. Let those out to be reported.
+    const outage = asProviderError("anthropic", err);
+    if (outage?.needsHim) throw outage;
     return null;
   }
 }

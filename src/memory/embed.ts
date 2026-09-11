@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { httpOutage } from "../integrations/provider-errors.js";
 
 const ENDPOINT = "https://api.voyageai.com/v1/embeddings";
 const BATCH = 96;
@@ -33,7 +34,7 @@ export async function embed(texts: string[], inputType: "document" | "query"): P
     });
 
     if (!response.ok) {
-      throw new Error(`Voyage embeddings failed (${response.status}): ${await response.text()}`);
+      throw httpOutage("voyage", response.status, await response.text());
     }
 
     const body = (await response.json()) as VoyageResponse;

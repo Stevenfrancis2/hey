@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { httpOutage } from "./provider-errors.js";
 
 const ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
 
@@ -16,7 +17,7 @@ export async function transcribe(audio: Uint8Array, filename = "voice.ogg"): Pro
   });
 
   if (!response.ok) {
-    throw new Error(`Groq transcription failed (${response.status}): ${await response.text()}`);
+    throw httpOutage("groq", response.status, await response.text());
   }
 
   return (await response.text()).trim();

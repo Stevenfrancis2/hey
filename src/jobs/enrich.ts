@@ -6,6 +6,7 @@ import { transcribe } from "../integrations/transcribe.js";
 import { downloadFile } from "../integrations/telegram-files.js";
 import { classify, saveClassification } from "../agent/classify.js";
 import { respond } from "../agent/run.js";
+import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 /** Intents where he is talking *to* the assistant rather than *at* it. */
 const WANTS_A_REPLY = new Set(["question", "request"]);
@@ -88,6 +89,11 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, captureId }, "enrich failed");
     await markFailed(captureId, message);
+
+    // The capture is safe either way, but silence is indistinguishable from the
+    // bot being broken. Tell him which provider stopped and what it costs him.
+    if (isProviderError(err)) await notifyOutage(api, chatId, err);
+
     throw err; // let pg-boss retry
   }
 }

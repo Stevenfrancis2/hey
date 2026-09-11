@@ -1,0 +1,167 @@
+import type { Api } from "grammy";
+import { log } from "../log.js";
+
+export type Provider = "anthropic" | "voyage" | "groq";
+
+/**
+ * `credit` and `auth` need him to go and do something; `rate_limit` and
+ * `unavailable` fix themselves. The distinction decides whether he is told.
+ */
+export type OutageKind = "credit" | "auth" | "rate_limit" | "unavailable";
+
+const WHERE_TO_TOP_UP: Record<Provider, string> = {
+  anthropic: "console.anthropic.com/settings/billing",
+  voyage: "dashboard.voyageai.com",
+  groq: "console.groq.com/settings/billing",
+};
+
+/**
+ * What breaks for him when each provider stops, in his terms. Never mentions a
+ * status code — he is holding a phone, not a log viewer.
+ */
+const CONSEQUENCE: Record<Provider, string> = {
+  anthropic: "I can't answer or sort anything until it's back. Everything you send is still saved.",
+  voyage: "Search still works, on exact words instead of meaning. Everything is still saved.",
+  groq: "Voice notes won't be transcribed. The audio is saved and I'll transcribe it once it's back.",
+};
+
+export class ProviderError extends Error {
+  constructor(
+    readonly provider: Provider,
+    readonly kind: OutageKind,
+    readonly status: number | null,
+    readonly detail: string,
+  ) {
+    super(`${provider} ${kind}${status ? ` (${status})` : ""}: ${detail}`);
+    this.name = "ProviderError";
+  }
+
+  /** True when topping up or fixing a key is the only way out. */
+  get needsHim(): boolean {
+    return this.kind === "credit" || this.kind === "auth";
+  }
+
+  /** Plain text for Telegram: no markdown, short lines, says what to do. */
+  get forTelegram(): string {
+    const name = this.provider === "anthropic" ? "Anthropic" : this.provider === "voyage" ? "Voyage" : "Groq";
+    const consequence = CONSEQUENCE[this.provider];
+
+    switch (this.kind) {
+      case "credit":
+        return `${name} is out of credit.\n\n${consequence}\n\nTop up at ${WHERE_TO_TOP_UP[this.provider]}, then send it again.`;
+      case "auth":
+        return `${name} rejected the API key.\n\n${consequence}\n\nCheck the key at ${WHERE_TO_TOP_UP[this.provider]} — it may have been revoked or rotated.`;
+      case "rate_limit":
+        return `${name} is rate limiting me. ${consequence}\n\nThis clears on its own — I'll retry.`;
+      case "unavailable":
+        return `${name} is down or unreachable. ${consequence}\n\nI'll retry.`;
+    }
+  }
+}
+
+export function isProviderError(err: unknown): err is ProviderError {
+  return err instanceof ProviderError;
+}
+
+/**
+ * Out of credit is a 400 on every one of these three, not a dedicated status, so
+ * the body text is the only thing that separates it from a malformed request.
+ *
+ * Matching the bare word "billing" is tempting and wrong: Groq's free-tier 429
+ * advertises its billing page inside the rate-limit message, which would report
+ * a five-second throttle as an empty account.
+ */
+const CREDIT_SIGNALS = [
+  "credit balance is too low",
+  "insufficient credit",
+  "insufficient_quota",
+  "exceeded your current quota",
+  "quota exceeded",
+  "billing_hard_limit_reached",
+  "payment required",
+  "out of credits",
+  "add a payment method",
+  "no active subscription",
+];
+
+const RATE_LIMIT_SIGNALS = ["rate limit", "rate_limit", "too many requests"];
+
+function has(body: string, signals: string[]): boolean {
+  const t = body.toLowerCase();
+  return signals.some((s) => t.includes(s));
+}
+
+function kindFor(status: number, body: string): OutageKind {
+  if (status === 401 || status === 403) return "auth";
+  if (status === 402) return "credit";
+
+  // Credit wins over rate limit when both are named: a 429 that says the balance
+  // is empty is not going to clear on its own.
+  if (has(body, CREDIT_SIGNALS)) return "credit";
+  if (status === 429 || has(body, RATE_LIMIT_SIGNALS)) return "rate_limit";
+  if (status >= 500) return "unavailable";
+  return "unavailable";
+}
+
+/** For the raw-fetch integrations: Voyage and Groq. */
+export function httpOutage(provider: Provider, status: number, body: string): ProviderError {
+  return new ProviderError(provider, kindFor(status, body), status, body.slice(0, 400));
+}
+
+type SdkError = { status?: number; message?: string; error?: unknown };
+
+/**
+ * The Anthropic SDK throws its own error classes. Reading `status` and the
+ * message off them structurally avoids importing error classes whose names have
+ * changed between SDK majors before.
+ */
+export function asProviderError(provider: Provider, err: unknown): ProviderError | null {
+  if (isProviderError(err)) return err;
+  if (typeof err !== "object" || err === null) return null;
+
+  const e = err as SdkError;
+  const status = typeof e.status === "number" ? e.status : null;
+  const body = `${e.message ?? ""} ${e.error ? JSON.stringify(e.error) : ""}`;
+
+  if (status !== null) return new ProviderError(provider, kindFor(status, body), status, body.slice(0, 400));
+
+  // No status means it never reached them — DNS, TLS, a dropped connection.
+  const message = String(e.message ?? "");
+  if (/fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up/i.test(message)) {
+    return new ProviderError(provider, "unavailable", null, message.slice(0, 400));
+  }
+  return null;
+}
+
+/**
+ * Telling him the same thing on every pg-boss retry would be worse than silence,
+ * so each provider-and-kind is announced at most once an hour. In memory on
+ * purpose: a restart re-announcing a still-broken provider is the harmless
+ * direction to be wrong in.
+ */
+const ANNOUNCE_EVERY_MS = 60 * 60 * 1000;
+const lastAnnounced = new Map<string, number>();
+
+export async function notifyOutage(api: Api, chatId: number, err: unknown): Promise<boolean> {
+  const outage = isProviderError(err) ? err : null;
+  if (!outage) return false;
+
+  const key = `${outage.provider}:${outage.kind}`;
+  const last = lastAnnounced.get(key) ?? 0;
+  if (Date.now() - last < ANNOUNCE_EVERY_MS) return false;
+  lastAnnounced.set(key, Date.now());
+
+  try {
+    await api.sendMessage(chatId, outage.forTelegram, { link_preview_options: { is_disabled: true } });
+    log.warn({ provider: outage.provider, kind: outage.kind }, "told him about the outage");
+    return true;
+  } catch (sendErr) {
+    log.error({ err: sendErr }, "could not warn about provider outage");
+    return false;
+  }
+}
+
+/** Only for tests. */
+export function resetOutageNotices(): void {
+  lastAnnounced.clear();
+}
