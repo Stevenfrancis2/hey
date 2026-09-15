@@ -93,16 +93,23 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   });
 
   // Cron is evaluated in the timezone we pass, so DST is handled for us.
+  //
+  // Every time below is pinned to his actual day, not a 9-to-5 he does not work:
+  // he wakes at 10:00, runs CliGli and the side projects until 16:00, then works
+  // a Chicago shift 16:00-00:00. Anything that pings him between 16:00 and
+  // midnight interrupts paid work, and anything before 10:00 arrives while he is
+  // asleep. The original 06:30 brief and 03:00 archive did both.
   const tz = { tz: config.timezone };
   await instance.schedule(TICK_QUEUE, "* * * * *", {}, tz);
-  await instance.schedule(MORNING_QUEUE, "30 6 * * *", {}, tz);
-  await instance.schedule(WEEKLY_QUEUE, "0 18 * * 0", {}, tz);
-  await instance.schedule(ARCHIVE_QUEUE, "0 3 * * *", {}, tz);
+  await instance.schedule(MORNING_QUEUE, "0 10 * * *", {}, tz);       // as he wakes
+  await instance.schedule(WEEKLY_QUEUE, "0 11 * * 0", {}, tz);        // Sunday, off shift
+  await instance.schedule(ARCHIVE_QUEUE, "30 9 * * *", {}, tz);       // waiting for him, not a 03:00 notification
   await instance.schedule(SWEEP_QUEUE, "*/10 * * * *", {}, tz);
   // The desk is the one real cost driver, so it runs once a day, not hourly.
-  await instance.schedule(DESK_DAILY_QUEUE, "0 8 * * *", {}, tz);
-  await instance.schedule(DESK_WEEKLY_QUEUE, "0 17 * * 6", {}, tz);
-  await instance.schedule(SCOUT_QUEUE, "0 19 1 * *", {}, tz);
+  await instance.schedule(DESK_DAILY_QUEUE, "0 14 * * *", {}, tz);    // mid own-business block
+  await instance.schedule(DESK_WEEKLY_QUEUE, "0 11 * * 6", {}, tz);   // Saturday, off shift
+  await instance.schedule(SCOUT_QUEUE, "0 11 1 * *", {}, tz);
+  // Drive stays overnight: it is a silent sync, it never messages him.
   await instance.schedule(DRIVE_QUEUE, "0 2 * * *", {}, tz);
 
   boss = instance;
