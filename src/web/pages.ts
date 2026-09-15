@@ -240,6 +240,7 @@ export async function chatPage(threadChatId: number): Promise<string> {
   <div class="log" id="log">${rendered || '<p class="empty">Nothing yet.</p>'}</div>
   <form class="composer" method="post" action="/chat" id="f">
     <textarea name="text" rows="1" placeholder="Ask it something…" required autofocus></textarea>
+    <button type="button" id="mic" class="mic" title="Hold to talk" aria-label="Record">🎙</button>
     <button type="submit">Send</button>
   </form>
 </div>
@@ -257,6 +258,37 @@ export async function chatPage(threadChatId: number): Promise<string> {
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(ta.value.trim())f.requestSubmit();}
   });
   f.addEventListener('submit',function(){b.disabled=true;b.textContent='Thinking…';});
+
+  // The same microphone the phone has. MediaRecorder needs https, which Fly
+  // gives us, and a permission the browser only grants on a real click.
+  var mic=document.getElementById('mic'),rec=null,chunks=[];
+  if(!navigator.mediaDevices||!window.MediaRecorder){mic.style.display='none';}
+  function label(t){mic.textContent=t;}
+  mic.addEventListener('click',function(){
+    if(rec&&rec.state==='recording'){rec.stop();return;}
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      chunks=[];rec=new MediaRecorder(stream);
+      rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};
+      rec.onstop=function(){
+        stream.getTracks().forEach(function(t){t.stop();});
+        label('…');mic.disabled=true;
+        var blob=new Blob(chunks,{type:'audio/webm'});
+        var fr=new FileReader();
+        fr.onloadend=function(){
+          var b64=String(fr.result).split(',')[1];
+          fetch('/chat/voice',{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({audio:b64})})
+            .then(function(r){return r.json();})
+            .then(function(){location.reload();})
+            .catch(function(){label('🎙');mic.disabled=false;alert('Could not send that.');});
+        };
+        fr.readAsDataURL(blob);
+      };
+      rec.start();label('⏹');
+      // A runaway recording is a big upload and a big bill. Two minutes is plenty.
+      setTimeout(function(){if(rec&&rec.state==='recording')rec.stop();},120000);
+    }).catch(function(){alert('Microphone permission denied.');});
+  });
 })();
 </script>
 `);

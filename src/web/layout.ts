@@ -247,6 +247,10 @@ button.ghost:hover{color:var(--signal);filter:none}
   padding:12px 0 calc(12px + env(safe-area-inset-bottom));display:flex;gap:9px;align-items:flex-end}
 .composer textarea{flex:1;max-height:160px;min-height:48px;margin:0}
 .composer button{margin:0;flex:none}
+.composer .mic{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line);
+  font-size:1.15rem;padding:0 14px;line-height:1}
+.composer .mic:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
+.composer .mic[disabled]{opacity:.5}
 .composer button[disabled]{opacity:.55;cursor:progress}
 .msg:last-child{margin-bottom:0}
 .flash{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-ink);

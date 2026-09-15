@@ -28,6 +28,7 @@ import {
 import { randomBytes } from "node:crypto";
 import { jarvisAudioBytes } from "../integrations/greeting.js";
 import { coverBytes } from "../integrations/bambu.js";
+import { transcribe } from "../integrations/transcribe.js";
 
 // The Google callback carries no session cookie (Google redirects the browser
 // there), so it is guarded by a one-time state value instead.
@@ -60,7 +61,7 @@ const ICON = Buffer.from(
 );
 
 export async function startServer() {
-  const app = Fastify({ logger: false });
+  const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
   await app.register(cookie);
   await app.register(formbody);
 
@@ -258,6 +259,23 @@ export async function startServer() {
       void enqueueEnrich(id).catch((err) => log.error({ err, id }, "enqueue failed"));
     }
     reply.redirect("/");
+  });
+
+  // The console gets the same microphone the phone has. Recording in the
+  // browser and posting base64 keeps this to one route and no new dependency.
+  app.post<{ Body: { audio?: string } }>("/chat/voice", async (request, reply) => {
+    const b64 = request.body.audio ?? "";
+    if (!b64) { reply.code(400).send({ error: "no audio" }); return; }
+    try {
+      const bytes = new Uint8Array(Buffer.from(b64, "base64"));
+      const text = (await transcribe(bytes, "console.webm")).trim();
+      if (!text) { reply.send({ text: "", reply: "I couldn't make that out." }); return; }
+      const answer = await respond(config.telegram.ownerId, text);
+      reply.send({ text, reply: answer });
+    } catch (err) {
+      log.error({ err }, "console voice failed");
+      reply.code(500).send({ error: "transcription failed" });
+    }
   });
 
   app.post<{ Body: { text?: string } }>("/chat", async (request, reply) => {
