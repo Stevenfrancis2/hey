@@ -1111,34 +1111,83 @@ export const jobCostingTool = betaZodTool({
     if (!c) return `No product matching "${product}".`;
     const m = (v: number) => `$${v.toFixed(2)}`;
     const out = [
-      `${c.product} — he charges ${m(c.my_price)}, ${c.units} units per print.`,
+      `${c.product} — ${c.units} units per print` +
+        (c.my_price ? `, he charges ${m(c.my_price)}.` : ", no price set."),
       ``,
-      `Estimated: ${c.est_hours}h per print -> ${m(c.unit_cost_est)}/unit -> margin ${m(c.margin_est)}`,
-    ];
-    if (c.actual_hours == null) {
+      `His sheet (${c.est_hours}h assumed, ${c.assumed_pct.toFixed(0)}% failure uplift):`,
+      `  ${m(c.est.total_cost_unit)}/unit · suggested ${m(c.est.price_2x)} / ${m(c.est.price_3x)} / ${m(c.est.price_4x)} at 2x/3x/4x`,
+      c.est.profit_unit != null
+        ? `  at his price: ${m(c.est.profit_unit)}/unit profit, ${c.est.my_markup!.toFixed(2)}x markup`
+        : ``,
+    ].filter(Boolean);
+
+    if (c.actual) {
+      out.push(
+        ``,
+        `What the farm actually did (${c.actual_hours}h over ${c.matched_jobs} prints, ${c.wasted_pct.toFixed(1)}% real waste):`,
+        `  ${m(c.actual.total_cost_unit)}/unit` +
+          (c.actual.profit_unit != null ? ` · ${m(c.actual.profit_unit)}/unit profit` : ""),
+        c.actual_hours! < c.est_hours
+          ? `It prints ${(c.est_hours / c.actual_hours!).toFixed(1)}x faster than the sheet says, so the electricity line is overstated.`
+          : `It takes longer than the sheet says, so the sheet flatters the margin.`,
+      );
+      if (c.matched_jobs < 3) out.push(`Only ${c.matched_jobs} matching jobs — treat that as weak.`);
+    } else {
       // His printers report the slicer profile, not the model, so most products
       // have nothing to cross against. Showing the real job names turns a dead
       // end into a question he can answer in one line.
       const cand = await farm.unmappedJobs(6);
       out.push(
         ``,
-        `No jobs in the farm history match that name, so this is the estimate only.`,
+        `No farm jobs match that name, so this is his estimate only.`,
         cand.length
-          ? `The farm's real job names are: ${cand.map((j: any) => `${j.job_name} (${j.jobs} prints, avg ${j.avg_hours}h)`).join("; ")}. ` +
-            `Ask him which of those is this product and the actual figure becomes possible.`
+          ? `The farm's real job names are: ${cand.map((j: any) => `${j.job_name} (${j.jobs} prints, avg ${j.avg_hours}h)`).join("; ")}.`
           : ``,
       );
-    } else {
-      out.push(
-        `Actual:    ${c.actual_hours}h across ${c.matched_jobs} real prints -> ${m(c.unit_cost_actual!)}/unit -> margin ${m(c.margin_actual!)}`,
-        ``,
-        c.actual_hours < c.est_hours
-          ? `It prints ${(c.est_hours / c.actual_hours).toFixed(1)}x faster than the sheet says, so the electricity line is overstated.`
-          : `It takes longer than the sheet says, so the sheet flatters the margin.`,
-      );
-      if (c.matched_jobs < 3) out.push(`Only ${c.matched_jobs} matching jobs — treat the actual figure as weak.`);
     }
-    out.push(``, `Per print: filament ${m(c.filament_cost)} · power ${m(c.power_cost_est)} est · addons ${m(c.addon_cost)} · packaging ${m(c.packaging_cost)}`);
+    out.push(``, `Per print: filament ${m(c.est.filament_cost)} · electricity ${m(c.est.electricity_cost)}`);
+    return out.join("\n");
+  },
+});
+
+export const priceProductTool = betaZodTool({
+  name: "price_product",
+  description:
+    "Cost a product with Steven's own pricing formula and optionally save it to his price " +
+    "list. Use when he describes a product and its inputs — grams of filament, print time, " +
+    "how many units come off a plate — and wants a price. Saving puts it on the Pricing page.",
+  inputSchema: z.object({
+    name: z.string(),
+    filament_g: z.number().describe("Grams of filament for the whole plate"),
+    units_per_print: z.number().describe("How many finished units come off one plate"),
+    hours: z.number().optional().describe("Print hours (use with days for long prints)"),
+    days: z.number().optional(),
+    addon_parts_per_unit: z.number().optional().describe("Bought-in parts per unit, e.g. a switch"),
+    my_price: z.number().optional().describe("What he charges, if he already has a price"),
+    h2c: z.boolean().optional().describe("True if it prints on the H2C, which runs on solar"),
+    save: z.boolean().optional().describe("Add it to the price list. Ask him first."),
+  }),
+  run: async (input) => {
+    const g = await farm.globals();
+    const c = farm.compute(input, g);
+    if (!c) return "Needs filament grams and units per print before it can be costed.";
+    const m = (v: number) => `$${v.toFixed(2)}`;
+
+    const out = [
+      `${input.name}: ${m(c.total_cost_unit)} per unit to make.`,
+      `  filament ${m(c.filament_cost)} + electricity ${m(c.electricity_cost)} per plate,` +
+        ` over ${input.units_per_print} units, plus ${(g.fail_rate * 100).toFixed(0)}% failure and ${m(g.packaging_cost)} packaging.`,
+      ``,
+      `Sell at ${m(c.price_2x)} (2x) · ${m(c.price_3x)} (3x) · ${m(c.price_4x)} (4x).`,
+    ];
+    if (c.profit_unit != null) {
+      out.push(`At ${m(input.my_price!)} you make ${m(c.profit_unit)} a unit — ${c.my_markup!.toFixed(2)}x markup.`);
+      if (c.my_markup! < 2) out.push(`That is below his own low markup. Worth telling him.`);
+    }
+    if (input.save) {
+      await farm.saveProduct(input);
+      out.push(``, `Saved to the price list.`);
+    }
     return out.join("\n");
   },
 });
@@ -1194,6 +1243,7 @@ export const clientTools = [
   filamentTool,
   farmFailuresTool,
   jobCostingTool,
+  priceProductTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

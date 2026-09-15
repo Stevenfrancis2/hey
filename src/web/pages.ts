@@ -12,7 +12,7 @@ import { listTopics as listResearchTopics, recentFindings, listCandidates } from
 import { listDecisions, findDecision, listOptions, listAssumptions, payback } from "../memory/decisions.js";
 import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
 import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
-         products as farmProducts } from "../memory/farm.js";
+         products as farmProducts, globals as farmGlobals, priceList } from "../memory/farm.js";
 import { listEvents, connectedAccount } from "../integrations/google.js";
 import { snapshots, isConfigured as bambuConfigured, connected as bambuConnected } from "../integrations/bambu.js";
 
@@ -527,6 +527,12 @@ ${items.sort((a, b) => b.total_g - a.total_g).map((l) => `<div class="fil">
   <span class="n"><b>${escapeHtml(l.color ?? "")}</b>
     <span>${escapeHtml(l.material)} · ${l.sealed} sealed · ${g(l.open_g)} open</span></span>
   <span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span>
+  <span class="fbtns">
+    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="-1"><button title="One spool used">&minus;</button></form>
+    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="1"><button title="Bought one">+</button></form>
+    <form method="post" action="/filament/${l.id}/open"><button title="Open a sealed spool">open</button></form>
+    <form method="post" action="/filament/${l.id}"><input type="number" name="grams" placeholder="${Math.round(l.open_g)}g" step="10" title="Grams left in the open spool"><button>set</button></form>
+  </span>
 </div>`).join("")}`;
     }).join("");
 })()}
@@ -618,5 +624,76 @@ export async function printersPage(): Promise<string> {
 ${live ? "live" : "reconnecting"} · refreshes every 20s</p>
 ${shots.length === 0 ? '<p class="empty">Waiting for the first report from Bambu Cloud…</p>'
   : `<div class="pgrid">${shots.map(card).join("")}</div>`}
+`);
+}
+
+export async function pricingPage(): Promise<string> {
+  const [g, items] = await Promise.all([farmGlobals(), priceList()]);
+  const m = (v: number | null | undefined) => (v == null ? "—" : `$${Number(v).toFixed(2)}`);
+  const num = (name: string, label: string, value: number, step = "0.01") =>
+    `<label style="display:block;margin-bottom:9px"><span class="muted"
+      style="display:block;margin:0 0 3px;font-size:.84rem">${label}</span>
+      <input type="number" step="${step}" name="${name}" value="${value}"></label>`;
+
+  return page("Pricing", "/pricing", `
+<h1>Pricing</h1>
+<p class="muted">${items.length} products, costed with your own formula — filament, electricity,
+add-ons, failure uplift, then packaging.</p>
+
+<h2>Shop constants</h2>
+<form method="post" action="/pricing/globals">
+  <div class="grid">
+    ${num("filament_price", "Filament $/kg", g.filament_price)}
+    ${num("electricity_price", "Electricity $/kWh", g.electricity_price)}
+    ${num("printer_power_kw", "Printer draw kW", g.printer_power_kw)}
+    ${num("h2c_multiplier", "H2C multiplier (solar)", g.h2c_multiplier)}
+    ${num("addon_part_cost", "Add-on part $", g.addon_part_cost)}
+    ${num("packaging_cost", "Packaging $/unit", g.packaging_cost)}
+    ${num("fail_rate", "Failure uplift", g.fail_rate)}
+    ${num("low_markup", "Low markup", g.low_markup, "0.1")}
+    ${num("mid_markup", "Mid markup", g.mid_markup, "0.1")}
+    ${num("high_markup", "High markup", g.high_markup, "0.1")}
+  </div>
+  <button type="submit">Save constants</button>
+</form>
+
+<h2>Add a product</h2>
+<form method="post" action="/pricing/product">
+  <div class="grid">
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Name</span>
+      <input type="text" name="name" required></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Filament g</span>
+      <input type="number" step="1" name="filament_g" required></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Units per print</span>
+      <input type="number" step="1" name="units_per_print" required></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Days</span>
+      <input type="number" step="0.5" name="days" value="0"></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Hours</span>
+      <input type="number" step="0.5" name="hours" value="0"></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Add-on parts/unit</span>
+      <input type="number" step="1" name="addon_parts_per_unit" value="0"></label>
+    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Your price $</span>
+      <input type="number" step="0.1" name="my_price"></label>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:22px">
+      <input type="checkbox" name="h2c" style="width:auto"> <span>Prints on the H2C</span></label>
+  </div>
+  <button type="submit">Add and cost it</button>
+</form>
+
+<h2>Price list</h2>
+${items.map((p: any) => {
+  const c = p.computed;
+  const thin = c && c.my_markup != null && c.my_markup < 2;
+  return `<div class="card">
+<div class="row"><h3>${escapeHtml(p.name)}${p.h2c ? " · H2C" : ""}</h3>
+<span class="tag${thin ? " due" : c?.my_markup ? " ok" : ""}">${c?.my_markup ? `${c.my_markup.toFixed(1)}x` : "no price"}</span></div>
+<p>${p.units_per_print ?? "—"} units · ${p.filament_g ?? "—"}g · ${Number(p.days ?? 0) * 24 + Number(p.hours ?? 0)}h</p>
+${c ? `<p>cost <b>${m(c.total_cost_unit)}</b>/unit · 2x ${m(c.price_2x)} · 3x ${m(c.price_3x)} · 4x ${m(c.price_4x)}${
+  c.profit_unit != null ? ` · you charge ${m(p.my_price)}, profit <b>${m(c.profit_unit)}</b>` : ""}</p>`
+ : `<p>Needs filament grams and units per print before it can be costed.</p>`}
+<form method="post" action="/pricing/product/${p.id}/delete" style="margin-top:8px">
+  <button type="submit" style="background:transparent;color:var(--ink-3);padding:4px 0;min-height:0;font-weight:500;font-size:.84rem">Delete</button>
+</form></div>`;
+}).join("")}
 `);
 }

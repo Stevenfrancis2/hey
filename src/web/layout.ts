@@ -28,6 +28,7 @@ const NAV: [string, string, string][] = [
   ["/desk", "Desk", "now"],
   ["/printers", "Printers", "work"],
   ["/farm", "Farm", "work"],
+  ["/pricing", "Pricing", "work"],
   ["/money", "Money", "work"],
   ["/study", "Study", "work"],
   ["/watchlist", "Watchlist", "work"],
@@ -188,6 +189,13 @@ button:active{transform:translateY(1px)}
 .fil .n{flex:1;min-width:0}
 .fil .n b{font-weight:600;font-size:.95rem}
 .fil .n span{display:block;font-size:.81rem;color:var(--ink-3)}
+.fbtns{display:flex;gap:4px;align-items:center;flex:none}
+.fbtns form{display:flex;gap:3px}
+.fbtns button{margin:0;min-height:34px;padding:0 11px;font-size:.84rem;font-weight:600;
+  background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+.fbtns button:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
+.fbtns input[type=number]{width:74px;padding:6px 8px;min-height:34px;font-size:.84rem}
+@media (max-width:640px){.fil{flex-wrap:wrap}.fbtns{width:100%;margin-top:8px;justify-content:flex-end}}
 
 /* bits */
 .empty{color:var(--ink-3);font-size:.93rem;padding:22px 0;border:1px dashed var(--line);

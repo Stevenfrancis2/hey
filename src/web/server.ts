@@ -11,10 +11,12 @@ import {
   passwordEnabled, checkPassword,
 } from "./auth.js";
 import { MANIFEST } from "./layout.js";
+import { setGlobals as setFarmGlobals, saveProduct, deleteProduct, adjustSealed, openSpool,
+         setOpenGrams } from "../memory/farm.js";
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
   watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
-  farmPage, calendarPage, printersPage,
+  farmPage, calendarPage, printersPage, pricingPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
@@ -185,6 +187,53 @@ export async function startServer() {
     reply.type("text/html").send(await searchPage(request.query.q)));
   app.get("/farm", async (_r, reply) => reply.type("text/html").send(await farmPage()));
   app.get("/printers", async (_r, reply) => reply.type("text/html").send(await printersPage()));
+  app.get("/pricing", async (_r, reply) => reply.type("text/html").send(await pricingPage()));
+
+  // The farm is his to manage, not the agent's. Plain form posts so it works
+  // with no JavaScript and on a phone with one hand.
+  app.post<{ Body: Record<string, string> }>("/pricing/globals", async (request, reply) => {
+    const n = (k: string) => Number(request.body[k]);
+    const patch: Record<string, number> = {};
+    for (const k of ["filament_price", "electricity_price", "printer_power_kw", "h2c_multiplier",
+                     "addon_part_cost", "packaging_cost", "fail_rate",
+                     "low_markup", "mid_markup", "high_markup"]) {
+      if (Number.isFinite(n(k))) patch[k] = n(k);
+    }
+    await setFarmGlobals(patch);
+    reply.redirect("/pricing");
+  });
+
+  app.post<{ Body: Record<string, string> }>("/pricing/product", async (request, reply) => {
+    const b = request.body;
+    const n = (k: string) => (b[k] === undefined || b[k] === "" ? 0 : Number(b[k]));
+    if ((b.name ?? "").trim()) {
+      await saveProduct({
+        name: (b.name ?? "").trim(), h2c: b.h2c === "on",
+        filament_g: n("filament_g"), days: n("days"), hours: n("hours"),
+        units_per_print: n("units_per_print"), addon_parts_per_unit: n("addon_parts_per_unit"),
+        my_price: b.my_price ? Number(b.my_price) : null,
+      });
+    }
+    reply.redirect("/pricing");
+  });
+
+  app.post<{ Params: { id: string } }>("/pricing/product/:id/delete", async (request, reply) => {
+    await deleteProduct(request.params.id);
+    reply.redirect("/pricing");
+  });
+
+  app.post<{ Params: { id: string }; Body: { delta?: string; grams?: string } }>(
+    "/filament/:id", async (request, reply) => {
+      const { delta, grams } = request.body;
+      if (delta) await adjustSealed(request.params.id, Number(delta));
+      if (grams !== undefined && grams !== "") await setOpenGrams(request.params.id, Number(grams));
+      reply.redirect("/farm");
+    });
+
+  app.post<{ Params: { id: string } }>("/filament/:id/open", async (request, reply) => {
+    await openSpool(request.params.id);
+    reply.redirect("/farm");
+  });
   app.get("/calendar", async (_r, reply) => reply.type("text/html").send(await calendarPage()));
 
   app.get("/chat", async (_r, reply) =>

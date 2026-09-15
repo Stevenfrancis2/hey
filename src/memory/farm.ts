@@ -105,15 +105,50 @@ export async function failures(days = 30) {
 }
 
 // ── The crossing: estimate vs what happened ───────────────
+export type Computed = {
+  filament_cost: number; electricity_cost: number;
+  base_cost_unit: number; total_cost_unit: number;
+  price_2x: number; price_3x: number; price_4x: number;
+  my_markup: number | null; profit_unit: number | null;
+};
+
+export type ProductInput = {
+  name: string; h2c?: boolean; filament_g: number; days?: number; hours?: number;
+  units_per_print: number; addon_parts_per_unit?: number; my_price?: number | null;
+};
+
+/**
+ * His formula from pricing.py, deliberately unchanged — including that
+ * packaging is added AFTER the failure uplift rather than inside it. It is his
+ * business maths and the numbers on his price list came out of it; "improving"
+ * it silently would make every figure disagree with the ones he has quoted.
+ */
+export function compute(p: ProductInput, g: Globals): Computed | null {
+  const units = n(p.units_per_print);
+  if (!units || p.filament_g == null) return null;
+
+  const printHours = n(p.days) * 24 + n(p.hours);
+  const filament = (n(p.filament_g) / 1000) * g.filament_price;
+  const electricity =
+    printHours * g.printer_power_kw * g.electricity_price * (p.h2c ? g.h2c_multiplier : 1);
+  const base = (filament + electricity) / units + n(p.addon_parts_per_unit) * g.addon_part_cost;
+  const total = base * (1 + g.fail_rate) + g.packaging_cost;
+  const price = p.my_price == null ? 0 : n(p.my_price);
+
+  return {
+    filament_cost: filament, electricity_cost: electricity,
+    base_cost_unit: base, total_cost_unit: total,
+    price_2x: total * g.low_markup, price_3x: total * g.mid_markup, price_4x: total * g.high_markup,
+    my_markup: price && total ? price / total : null,
+    profit_unit: price ? price - total : null,
+  };
+}
+
 export type Costing = {
-  product: string; my_price: number;
+  product: string; my_price: number; units: number;
   est_hours: number; actual_hours: number | null; matched_jobs: number;
-  units: number;
-  filament_cost: number; power_cost_est: number; power_cost_actual: number | null;
-  addon_cost: number; packaging_cost: number;
-  unit_cost_est: number; unit_cost_actual: number | null;
-  margin_est: number; margin_actual: number | null;
-  wasted_pct: number;
+  est: Computed; actual: Computed | null;
+  wasted_pct: number; assumed_pct: number;
 };
 
 export async function costing(name: string): Promise<Costing | null> {
@@ -123,13 +158,17 @@ export async function costing(name: string): Promise<Costing | null> {
      ORDER BY similarity(name, $1) DESC LIMIT 1`, [name]);
   if (!p) return null;
 
-  const units = n(p.units_per_print) || 1;
-  const estHours = n(p.days) * 24 + n(p.hours);
+  const input: ProductInput = {
+    name: p.name, h2c: p.h2c, filament_g: n(p.filament_g), days: n(p.days), hours: n(p.hours),
+    units_per_print: n(p.units_per_print), addon_parts_per_unit: n(p.addon_parts_per_unit),
+    my_price: n(p.my_price),
+  };
+  const est = compute(input, g);
+  if (!est) return null;
 
   // Most job names are the Bambu Studio *profile* ("0.2mm layer, 2 walls, 15%
   // infill"), not the model — his two vocabularies barely overlap. Excluding
-  // the profile strings stops a product matching every job on the farm, and
-  // matching in both directions catches "corn clicker" vs "Corn Clicker v2".
+  // the profile strings stops a product matching every job on the farm.
   const act = await one<any>(
     `SELECT count(*)::int AS matched, round(avg(duration_s)/3600.0, 2) AS hours
      FROM farm_jobs
@@ -141,28 +180,16 @@ export async function costing(name: string): Promise<Costing | null> {
   const actualHours = matched > 0 ? n(act?.hours) : null;
 
   const f = await failures(3650);
-  const powerRate = g.printer_power_kw * g.electricity_price * (p.h2c ? g.h2c_multiplier : 1);
-  const filament = (n(p.filament_g) / 1000) * g.filament_price;
-  const addons = n(p.addon_parts_per_unit) * units * g.addon_part_cost;
-  const packaging = units * g.packaging_cost;
-
-  const build = (hours: number, failUplift: number) =>
-    (filament + hours * powerRate + addons + packaging) * (1 + failUplift) / units;
-
-  const unitEst = build(estHours, g.fail_rate);
-  const unitAct = actualHours == null ? null : build(actualHours, f.wasted);
+  // The actual column swaps his two estimates for what the farm really did:
+  // measured print time, and the failure waste the jobs table implies.
+  const actual = actualHours == null
+    ? null
+    : compute({ ...input, days: 0, hours: actualHours }, { ...g, fail_rate: f.wasted });
 
   return {
-    product: p.name, my_price: n(p.my_price),
-    est_hours: estHours, actual_hours: actualHours, matched_jobs: matched, units,
-    filament_cost: filament,
-    power_cost_est: estHours * powerRate,
-    power_cost_actual: actualHours == null ? null : actualHours * powerRate,
-    addon_cost: addons, packaging_cost: packaging,
-    unit_cost_est: unitEst, unit_cost_actual: unitAct,
-    margin_est: n(p.my_price) - unitEst,
-    margin_actual: unitAct == null ? null : n(p.my_price) - unitAct,
-    wasted_pct: f.wasted * 100,
+    product: p.name, my_price: n(p.my_price), units: n(p.units_per_print),
+    est_hours: n(p.days) * 24 + n(p.hours), actual_hours: actualHours, matched_jobs: matched,
+    est, actual, wasted_pct: f.wasted * 100, assumed_pct: g.fail_rate * 100,
   };
 }
 
@@ -184,4 +211,73 @@ export async function products(limit = 60) {
     `SELECT name, my_price, filament_g, units_per_print, h2c,
             (coalesce(days,0)*24 + coalesce(hours,0)) AS est_hours
      FROM farm_products ORDER BY name LIMIT $1`, [limit]);
+}
+
+// ── Mutations: he manages the farm, not the agent ─────────
+export async function adjustSealed(id: string, delta: number): Promise<number> {
+  const r = await one<{ quantity: number }>(
+    `UPDATE farm_filament SET quantity = greatest(0, quantity + $2), updated_at = now()
+     WHERE id = $1 RETURNING quantity`, [id, delta]);
+  return r?.quantity ?? 0;
+}
+
+/** Opening a spool moves one sealed unit into the open list at full weight. */
+export async function openSpool(id: string): Promise<void> {
+  await query(
+    `UPDATE farm_filament
+     SET quantity = greatest(0, quantity - 1),
+         open_spools = open_spools || to_jsonb(spool_weight_g),
+         updated_at = now()
+     WHERE id = $1 AND quantity > 0`, [id]);
+}
+
+export async function setOpenGrams(id: string, grams: number): Promise<void> {
+  // One open spool per line is how he actually works; the array is kept for the
+  // rare case he has two of the same colour on the go.
+  await query(
+    `UPDATE farm_filament
+     SET open_spools = CASE WHEN $2::numeric <= 0 THEN '[]'::jsonb ELSE to_jsonb(ARRAY[$2::numeric]) END,
+         updated_at = now()
+     WHERE id = $1`, [id, grams]);
+}
+
+export async function setGlobals(patch: Partial<Globals>): Promise<Globals> {
+  const g = await globals();
+  const merged = { ...g, ...patch };
+  await query(`UPDATE farm_globals SET values = $1 WHERE id`, [JSON.stringify(merged)]);
+  return merged;
+}
+
+export async function saveProduct(p: ProductInput & { id?: string }): Promise<string> {
+  const id = p.id ?? Math.random().toString(16).slice(2, 14);
+  await query(
+    `INSERT INTO farm_products (id, name, h2c, filament_g, days, hours, units_per_print,
+                                addon_parts_per_unit, my_price)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, h2c=EXCLUDED.h2c,
+       filament_g=EXCLUDED.filament_g, days=EXCLUDED.days, hours=EXCLUDED.hours,
+       units_per_print=EXCLUDED.units_per_print,
+       addon_parts_per_unit=EXCLUDED.addon_parts_per_unit, my_price=EXCLUDED.my_price,
+       updated_at=now()`,
+    [id, p.name, !!p.h2c, p.filament_g, p.days ?? 0, p.hours ?? 0, p.units_per_print,
+     p.addon_parts_per_unit ?? 0, p.my_price ?? null]);
+  return id;
+}
+
+export async function deleteProduct(id: string): Promise<void> {
+  await query(`DELETE FROM farm_products WHERE id = $1`, [id]);
+}
+
+/** Every product with his formula already applied, for the price list. */
+export async function priceList() {
+  const g = await globals();
+  const rows = await query<any>(`SELECT * FROM farm_products ORDER BY name`);
+  return rows.map((p) => ({
+    ...p,
+    computed: compute({
+      name: p.name, h2c: p.h2c, filament_g: n(p.filament_g), days: n(p.days), hours: n(p.hours),
+      units_per_print: n(p.units_per_print), addon_parts_per_unit: n(p.addon_parts_per_unit),
+      my_price: p.my_price == null ? null : n(p.my_price),
+    }, g),
+  }));
 }
