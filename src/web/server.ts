@@ -27,6 +27,7 @@ import {
 } from "../integrations/google.js";
 import { randomBytes } from "node:crypto";
 import { jarvisAudioBytes } from "../integrations/greeting.js";
+import { coverBytes } from "../integrations/bambu.js";
 
 // The Google callback carries no session cookie (Google redirects the browser
 // there), so it is guarded by a one-time state value instead.
@@ -187,6 +188,11 @@ export async function startServer() {
     reply.type("text/html").send(await searchPage(request.query.q)));
   app.get("/farm", async (_r, reply) => reply.type("text/html").send(await farmPage()));
   app.get("/printers", async (_r, reply) => reply.type("text/html").send(await printersPage()));
+  app.get<{ Params: { id: string } }>("/cover/:id", async (request, reply) => {
+    const img = await coverBytes(request.params.id);
+    if (!img) { reply.code(404).send(); return; }
+    reply.type(img.type).header("cache-control", "public, max-age=120").send(img.body);
+  });
   app.get("/pricing", async (_r, reply) => reply.type("text/html").send(await pricingPage()));
 
   // The farm is his to manage, not the agent's. Plain form posts so it works

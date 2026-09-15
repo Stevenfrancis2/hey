@@ -32,7 +32,7 @@ export type Snapshot = {
   devId: string; name: string; model: string;
   state: string; stale: boolean; online: boolean;
   percent: number; remainingMin: number; layer: number; totalLayers: number;
-  job: string; nozzle: number; nozzleTarget: number; bed: number; bedTarget: number;
+  job: string; hasCover: boolean; nozzle: number; nozzleTarget: number; bed: number; bedTarget: number;
   trays: Tray[]; hms: Hms[]; lastUpdate: number;
 };
 
@@ -189,6 +189,7 @@ export function snapshots(): Snapshot[] {
       layer: num(s, "layer_num"),
       totalLayers: num(s, "total_layer_num"),
       job: String(s.subtask_name ?? s.gcode_file ?? ""),
+      hasCover: Boolean(s.task_id) && String(s.task_id) !== "0",
       nozzle: Math.round(num(s, "nozzle_temper")),
       nozzleTarget: Math.round(num(s, "nozzle_target_temper")),
       bed: Math.round(num(s, "bed_temper")),
@@ -200,4 +201,59 @@ export function snapshots(): Snapshot[] {
 
 export function connected(): boolean {
   return Boolean(client?.connected);
+}
+
+/**
+ * The plate thumbnail for whatever a printer is currently running.
+ *
+ * The MQTT report only carries a real task_id for jobs sliced through the
+ * cloud; a reprint from the SD card reports "0" and has no cloud record, so
+ * there is simply no image for those. For a real id, Bambu's task history
+ * already holds the job while it is still printing, with a short-lived
+ * presigned cover URL — hence the cache and the proxy.
+ */
+const covers = new Map<string, { at: number; url: string | null }>();
+const COVER_TTL_MS = 5 * 60_000;
+
+export function taskIdOf(devId: string): string {
+  return String((state.get(devId) ?? {}).task_id ?? "");
+}
+
+export async function coverUrl(devId: string, taskId: string): Promise<string | null> {
+  if (!taskId || taskId === "0") return null;
+  const key = `${devId}:${taskId}`;
+  const hit = covers.get(key);
+  if (hit && Date.now() - hit.at < COVER_TTL_MS) return hit.url;
+
+  let url: string | null = null;
+  try {
+    const res = await fetch(
+      `https://api.bambulab.com/v1/user-service/my/tasks?deviceId=${encodeURIComponent(devId)}&limit=5`,
+      { headers: { ...HEADERS, Authorization: `Bearer ${config.bambu.accessToken}` } },
+    );
+    if (res.ok) {
+      const body = (await res.json()) as { hits?: { id?: unknown; cover?: string }[] };
+      url = body.hits?.find((h) => String(h.id) === String(taskId))?.cover ?? null;
+    }
+  } catch (err) {
+    log.warn({ err, devId }, "thumbnail lookup failed");
+  }
+  covers.set(key, { at: Date.now(), url });
+  return url;
+}
+
+/** Proxied so an <img> never carries Bambu credentials and never 403s on expiry. */
+export async function coverBytes(devId: string): Promise<{ body: Buffer; type: string } | null> {
+  const url = await coverUrl(devId, taskIdOf(devId));
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return {
+      body: Buffer.from(await res.arrayBuffer()),
+      type: res.headers.get("content-type") ?? "image/png",
+    };
+  } catch {
+    return null;
+  }
 }

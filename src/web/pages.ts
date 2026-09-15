@@ -28,61 +28,74 @@ function daysLeft(d: Date | string | null): string {
 }
 
 export async function dashboard(): Promise<string> {
-  const [tasks, projects, reminders, latest, counts] = await Promise.all([
-    listTasks(),
-    listProjects(),
-    listReminders(),
-    recent(8),
-    query<{ captures: string; rooms: string }>(
-      `SELECT (SELECT count(*) FROM captures) AS captures,
-              (SELECT count(DISTINCT context_id) FROM capture_enrichment) AS rooms`,
-    ),
-  ]);
+  const [tasks, projects, reminders] = await Promise.all([listTasks(), listProjects(), listReminders()]);
+
+  // Printers first. It is the only thing on this page that is happening right
+  // now, and the reason he opens it on a phone in the workshop.
+  const shots = bambuConfigured() ? snapshots() : [];
+  const printing = shots.filter((s) => s.state === "RUNNING");
+  const broken = shots.filter((s) => s.hms.length > 0);
+  const soonest = [...printing].sort((a, b) => a.remainingMin - b.remainingMin)[0];
+
+  let events: { summary?: string; start: { dateTime?: string; date?: string } }[] = [];
+  try {
+    if (await connectedAccount()) {
+      events = await listEvents({ to: new Date(Date.now() + 864e5), limit: 6 });
+    }
+  } catch { /* calendar being down must not take the dashboard with it */ }
 
   const overdue = projects.filter((p) => p.deadline && new Date(p.deadline) < new Date());
   const upcoming = projects.filter((p) => p.deadline && new Date(p.deadline) >= new Date());
-  // Sorted by due date, but undated tasks still show — most of his tasks have no
-  // date, and a dashboard that hides them is worse than no dashboard.
-  const soon = tasks.slice(0, 8);
+  const hhmm = (m: number) => (m <= 0 ? "" : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`);
 
   return page("Today", "/", `
 <h1>Today</h1>
-<p class="muted">${counts[0]?.captures ?? 0} captures across ${counts[0]?.rooms ?? 0} rooms ·
-${tasks.length} open tasks · ${projects.length} live projects</p>
+<p class="muted">${new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</p>
 
-<form method="post" action="/capture">
-  <textarea name="text" rows="3" placeholder="Throw something in — an idea, a number, a thing to do…" required></textarea>
-  <button type="submit">Capture</button>
-</form>
-<p class="muted" style="margin-top:10px">That box files things away silently.
-To actually talk to him, go to <a href="/chat">Chat</a>.</p>
+${shots.length ? `<a class="card hero" href="/printers">
+  <div class="row"><h3>${printing.length} of ${shots.length} printing</h3>
+  <span class="tag${broken.length ? " due" : printing.length ? " ok" : ""}">${
+    broken.length ? `${broken.length} with errors` : printing.length ? "all good" : "idle"}</span></div>
+  ${soonest ? `<p>Next off the plate: <b>${escapeHtml(soonest.name)}</b> in ${hhmm(soonest.remainingMin)}</p>` : `<p>Nothing running.</p>`}
+</a>` : ""}
+
+${events.length ? `<h2>Next 24 hours</h2>${events.map((e) => `
+<div class="card"><div class="row"><h3>${escapeHtml(e.summary ?? "(no title)")}</h3>
+<span class="tag">${e.start.dateTime
+  ? new Date(e.start.dateTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+  : "all day"}</span></div></div>`).join("")}` : ""}
 
 ${overdue.length ? `<h2>Overdue</h2>${overdue.map((p) => `
 <div class="card"><div class="row"><h3>${escapeHtml(p.name)}</h3>
 <span class="tag due">${daysLeft(p.deadline)}</span></div>
 <p>${escapeHtml(p.client ?? p.context_key ?? "")}</p></div>`).join("")}` : ""}
 
-${upcoming.length ? `<h2>Deadlines</h2>${upcoming.map((p) => `
+${upcoming.length ? `<h2>Deadlines</h2>${upcoming.slice(0, 5).map((p) => `
 <div class="card"><div class="row"><h3>${escapeHtml(p.name)}</h3>
 <span class="tag">${daysLeft(p.deadline)}</span></div>
 <p>${escapeHtml(p.client ?? p.context_key ?? "")}</p></div>`).join("")}` : ""}
 
 <h2>Next up</h2>
-${soon.length === 0 ? '<p class="empty">Nothing open.</p>' : soon.map((t) => `
+${tasks.length === 0 ? '<p class="empty">Nothing open. Tell him something to do and it lands here.</p>'
+  : tasks.slice(0, 8).map((t) => `
 <div class="card"><div class="row"><h3>${escapeHtml(t.title)}</h3>
 ${t.due_at ? `<span class="tag${new Date(t.due_at) < new Date() ? " due" : ""}">${daysLeft(t.due_at)}</span>`
-  : `<span class="tag">${escapeHtml(t.context_key ?? "")}</span>`}</div>
-${t.due_at ? `<p>${escapeHtml(t.context_key ?? "")}</p>` : ""}</div>`).join("")}
+  : `<span class="tag">${escapeHtml(t.context_key ?? "")}</span>`}</div></div>`).join("")}
 
 ${reminders.length ? `<h2>Reminders</h2>${reminders.slice(0, 5).map((r) => `
 <div class="card"><div class="row"><h3>${escapeHtml(r.text)}</h3>
 <span class="tag">${when(r.fire_at)}</span></div></div>`).join("")}` : ""}
 
-<h2>Latest in</h2>
-${latest.map((h) => `<div class="hit"><time>${when(h.captured_at)}${h.kind === "voice" ? " · voice" : ""}</time>
-${escapeHtml(h.text.slice(0, 260))}</div>`).join("") || '<p class="empty">Nothing captured yet.</p>'}
+<h2>Throw something in</h2>
+<p class="muted">Files it away silently — no reply. To actually talk to him, use
+<a href="/chat">Chat</a>.</p>
+<form method="post" action="/capture">
+  <textarea name="text" rows="2" placeholder="An idea, a number, a thing to do…" required></textarea>
+  <button type="submit">Capture</button>
+</form>
 `);
 }
+
 
 export async function tasksPage(): Promise<string> {
   const tasks = await listTasks();
@@ -603,6 +616,7 @@ export async function printersPage(): Promise<string> {
     const label = !s.online ? "offline" : s.stale ? "stale" : s.state.toLowerCase();
     const isRunning = s.state === "RUNNING";
     return `<div class="printer ${cls}">
+  ${isRunning && s.hasCover ? `<img class="cover" src="/cover/${s.devId}" alt="" loading="lazy">` : ""}
   <div class="top"><span class="name">${escapeHtml(s.name)}</span>
     <span class="tag${s.hms.length ? " due" : isRunning ? " ok" : ""}">${escapeHtml(label)}</span></div>
   ${isRunning ? `<div class="left"><b>${left(s.remainingMin)}</b>

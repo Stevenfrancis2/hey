@@ -130,6 +130,10 @@ h3{margin:0 0 4px;font-size:1rem;letter-spacing:-.012em;font-weight:620}
   margin-bottom:14px;padding:6px 10px 6px 0;min-height:36px}
 .back:hover{color:var(--ink);text-decoration:none}
 .muted{color:var(--ink-2);font-size:.94rem;margin:0 0 20px;max-width:64ch}
+/* A pasted URL or a slicer filename must wrap rather than push the page sideways. */
+h1,h2,h3,p,.hit,.card,.fil .n{overflow-wrap:anywhere}
+pre,table{max-width:100%;overflow-x:auto;display:block}
+img{max-width:100%;height:auto}
 
 /* cards */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
@@ -169,6 +173,10 @@ button:active{transform:translateY(1px)}
 .printer.run{border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
 .printer.err{border-color:color-mix(in srgb,var(--signal) 55%,transparent)}
 .printer.off{opacity:.55}
+.printer{position:relative}
+.printer .cover{position:absolute;top:12px;right:12px;width:54px;height:54px;
+  object-fit:cover;border-radius:9px;border:1px solid var(--line);background:var(--surface-2)}
+.printer .cover+.top{padding-right:62px}
 .printer .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
 .printer .name{font-weight:650;letter-spacing:-.012em}
 .printer .job{font-size:.86rem;color:var(--ink-2);margin:0 0 9px;overflow:hidden;
@@ -200,6 +208,12 @@ button:active{transform:translateY(1px)}
 .fbtns button:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
 .fbtns input[type=number]{width:74px;padding:6px 8px;min-height:34px;font-size:.84rem}
 @media (max-width:640px){.fil{flex-wrap:wrap}.fbtns{width:100%;margin-top:8px;justify-content:flex-end}}
+
+a.card{display:block;color:inherit}
+a.card:hover{text-decoration:none}
+.card.hero{border-color:color-mix(in srgb,var(--accent) 35%,transparent);
+  background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%)}
+.card.hero h3{font-size:1.12rem}
 
 /* config grids: labelled number fields that stay readable on a phone */
 .cfgs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}
@@ -258,6 +272,10 @@ button.ghost:hover{color:var(--signal);filter:none}
   main{padding:40px 44px 96px;max-width:860px;margin:0}
   .card:hover{border-color:var(--line-2);box-shadow:var(--raise-2);transform:translateY(-1px)}
   h2{margin-top:40px}
+}
+@media (min-width:700px) and (max-width:899px){
+  main{padding:26px 28px 80px}
+  .tabs a{padding:10px 15px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media print{.side,header{display:none}.shell{display:block}main{padding:0;max-width:none}}
