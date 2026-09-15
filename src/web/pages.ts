@@ -1,4 +1,4 @@
-import { page, escapeHtml } from "./layout.js";
+import { page, escapeHtml, back } from "./layout.js";
 import { query } from "../db/index.js";
 import { listTasks } from "../memory/tasks.js";
 import { listProjects } from "../memory/projects.js";
@@ -131,7 +131,7 @@ export async function roomsPage(): Promise<string> {
 
 export async function roomPage(key: string): Promise<string> {
   const [meta] = await query<{ name: string }>(`SELECT name FROM contexts WHERE key = $1`, [key]);
-  if (!meta) return page("Not found", "/rooms", "<h1>No such room</h1>");
+  if (!meta) return page("Not found", "/rooms", `${back("/rooms", "Rooms")}<h1>No such room</h1>`);
 
   const [items, tasks, projects] = await Promise.all([
     query<{ captured_at: Date; kind: string; raw_text: string; author: string | null; intent: string | null }>(
@@ -146,6 +146,7 @@ export async function roomPage(key: string): Promise<string> {
   const roomProjects = projects.filter((p) => p.context_key === key);
 
   return page(meta.name, "/rooms", `
+${back("/rooms", "Rooms")}
 <h1>${escapeHtml(meta.name)}</h1><p class="muted">${items.length} captures · ${tasks.length} open tasks</p>
 ${roomProjects.length ? `<h2>Projects</h2>${roomProjects.map((p) => `
 <div class="card"><div class="row"><h3>${escapeHtml(p.name)}</h3>

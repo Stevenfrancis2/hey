@@ -1,3 +1,11 @@
+/**
+ * A detail page in a standalone PWA has no browser back button, so without this
+ * a room is a dead end — he tapped in and could not get out.
+ */
+export function back(href: string, label: string): string {
+  return `<a class="back" href="${href}">&larr; ${escapeHtml(label)}</a>`;
+}
+
 /** Escapes single quotes too, so this stays safe in attribute contexts. */
 export function escapeHtml(text: string): string {
   return text
@@ -116,6 +124,9 @@ h1{font-size:clamp(1.55rem,4.4vw,2rem);line-height:1.18;letter-spacing:-.028em;
 h2{font-size:1.06rem;letter-spacing:-.014em;margin:34px 0 12px;font-weight:650}
 h2:first-of-type{margin-top:26px}
 h3{margin:0 0 4px;font-size:1rem;letter-spacing:-.012em;font-weight:620}
+.back{display:inline-block;font-size:.88rem;color:var(--ink-2);font-weight:550;
+  margin-bottom:14px;padding:6px 10px 6px 0;min-height:36px}
+.back:hover{color:var(--ink);text-decoration:none}
 .muted{color:var(--ink-2);font-size:.94rem;margin:0 0 20px;max-width:64ch}
 
 /* cards */
