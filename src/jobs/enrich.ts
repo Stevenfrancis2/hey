@@ -8,8 +8,18 @@ import { classify, saveClassification } from "../agent/classify.js";
 import { respond } from "../agent/run.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
-/** Intents where he is talking *to* the assistant rather than *at* it. */
-const WANTS_A_REPLY = new Set(["question", "request"]);
+/**
+ * Intents where he is talking *to* the assistant rather than *at* it, so the
+ * agent runs and answers.
+ *
+ * `reminder` and `task` belong here even though they read like statements.
+ * Classifying alone only labels the capture — nothing schedules it. Without the
+ * agent and its tools, "remind me tomorrow at 1am" was stored, labelled
+ * `reminder`, and then never fired, which is the worst possible outcome: he
+ * believes it is set. The reply doubles as the confirmation that the time was
+ * parsed the way he meant, the same reason a transcript is echoed back.
+ */
+const NEEDS_THE_AGENT = new Set(["question", "request", "reminder", "task"]);
 
 /**
  * Everything expensive happens here, off the message path: transcribe, index,
@@ -72,7 +82,7 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
 
     // He never has to choose between noting something and asking something.
     // Everything is stored; a reply happens only when he actually asked.
-    if (classification && WANTS_A_REPLY.has(classification.intent)) {
+    if (classification && NEEDS_THE_AGENT.has(classification.intent)) {
       await api.sendChatAction(chatId, "typing").catch(() => {});
       const reply = await respond(chatId, indexed);
       if (reply.trim().length > 0) {
