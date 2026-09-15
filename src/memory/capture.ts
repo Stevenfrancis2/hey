@@ -1,6 +1,6 @@
 import { one, query } from "../db/index.js";
 
-export type CaptureKind = "text" | "voice" | "photo" | "document" | "link" | "forward";
+export type CaptureKind = "text" | "voice" | "video" | "photo" | "document" | "link" | "forward";
 
 export type NewCapture = {
   telegramMessageId: number;
@@ -21,6 +21,7 @@ export type CaptureRow = {
   kind: CaptureKind;
   raw_text: string | null;
   media_file_id: string | null;
+  media_mime: string | null;
   duration_s: number | null;
   author: string | null;
   status: string;
@@ -50,7 +51,7 @@ export async function recordCapture(input: NewCapture): Promise<string> {
 
 export async function getCapture(id: string): Promise<CaptureRow | null> {
   return one<CaptureRow>(
-    `SELECT id, chat_id, telegram_message_id, kind, raw_text, media_file_id, duration_s, author, status
+    `SELECT id, chat_id, telegram_message_id, kind, raw_text, media_file_id, media_mime, duration_s, author, status
      FROM captures WHERE id = $1`,
     [id],
   );

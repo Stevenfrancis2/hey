@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS captures (
   id                  uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   telegram_message_id bigint,
   chat_id             bigint,
-  kind                text NOT NULL,       -- text|voice|photo|document|link|forward
+  kind                text NOT NULL,       -- text|voice|video|photo|document|link|forward
   raw_text            text,                -- typed text, transcription, or OCR
   media_file_id       text,                -- telegram file id, re-fetchable
   media_mime          text,

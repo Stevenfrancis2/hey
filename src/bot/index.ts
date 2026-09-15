@@ -478,6 +478,24 @@ bot.on("message:document", async (ctx) => {
   }, authorOf(ctx.message));
 });
 
+// A video had no handler at all, so it fell through every one of these and was
+// dropped without a trace — the one failure this system is not allowed to have.
+// Groq's Whisper takes the container directly and pulls the audio out, so a
+// clip of a printer making a noise becomes words like a voice note does.
+bot.on("message:video", async (ctx) => {
+  await ack(ctx);
+  await capture(ctx, "video", ctx.message.caption ?? null, {
+    fileId: ctx.message.video.file_id,
+    mime: ctx.message.video.mime_type,
+  }, authorOf(ctx.message));
+});
+
+bot.on("message:video_note", async (ctx) => {
+  await ack(ctx);
+  await capture(ctx, "video", null, { fileId: ctx.message.video_note.file_id, mime: "video/mp4" },
+    authorOf(ctx.message));
+});
+
 bot.on("message:text", async (ctx) => {
   await ack(ctx);
   const author = authorOf(ctx.message);

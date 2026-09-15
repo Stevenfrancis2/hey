@@ -8,6 +8,7 @@ import { classify, saveClassification } from "../agent/classify.js";
 import { respond } from "../agent/run.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 import { isGreeting, sendJarvisVoice } from "../integrations/greeting.js";
+import { readMedia, canRead } from "../integrations/vision.js";
 
 /**
  * Intents where he is talking *to* the assistant rather than *at* it, so the
@@ -39,10 +40,10 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
   try {
     let text = capture.raw_text ?? "";
 
-    if (capture.kind === "voice" && capture.media_file_id) {
+    if ((capture.kind === "voice" || capture.kind === "video") && capture.media_file_id) {
       const started = Date.now();
       const audio = await downloadFile(api, capture.media_file_id);
-      const transcript = await transcribe(audio);
+      const transcript = await transcribe(audio, capture.kind === "video" ? "clip.mp4" : "voice.ogg");
       log.info({ captureId, ms: Date.now() - started, chars: transcript.length }, "transcribed");
 
       text = text.length > 0 ? `${text}\n\n${transcript}` : transcript;
@@ -57,6 +58,30 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
             ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }
             : {},
         );
+      }
+    }
+
+    // A photo or a PDF is read here, off the capture path, exactly like a voice
+    // note is transcribed. Before this it was stored and never looked at: the
+    // row existed, the caption was indexed, and the content — which is the
+    // whole reason he sent it — was invisible to recall and to the agent.
+    if ((capture.kind === "photo" || capture.kind === "document") && capture.media_file_id) {
+      const mime = capture.kind === "photo" ? "image/jpeg" : (capture.media_mime ?? "");
+      if (canRead(mime)) {
+        const started = Date.now();
+        try {
+          const bytes = await downloadFile(api, capture.media_file_id);
+          const read = await readMedia(bytes, mime, capture.raw_text);
+          if (read) {
+            text = text.length > 0 ? `${text}
+
+${read}` : read;
+            await setCaptureText(captureId, text);
+            log.info({ captureId, kind: capture.kind, ms: Date.now() - started, chars: read.length }, "media read");
+          }
+        } catch (err) {
+          log.warn({ err, captureId }, "media read failed");
+        }
       }
     }
 
