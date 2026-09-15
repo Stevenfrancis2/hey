@@ -160,6 +160,16 @@ button:active{transform:translateY(1px)}
   box-shadow:var(--raise)}
 .msg.me .bubble{background:var(--accent-soft);
   border-color:color-mix(in srgb,var(--accent) 26%,transparent)}
+/* chat: history scrolls, composer stays put, newest at the bottom like every
+   other chat he uses. The alternative is typing at the top and reading down. */
+.chat{display:flex;flex-direction:column;gap:0;height:calc(100dvh - 190px);min-height:340px}
+.log{flex:1;overflow-y:auto;padding:4px 2px 14px;overscroll-behavior:contain}
+.composer{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);
+  padding:12px 0 calc(12px + env(safe-area-inset-bottom));display:flex;gap:9px;align-items:flex-end}
+.composer textarea{flex:1;max-height:160px;min-height:48px;margin:0}
+.composer button{margin:0;flex:none}
+.composer button[disabled]{opacity:.55;cursor:progress}
+.msg:last-child{margin-bottom:0}
 .flash{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-ink);
   border-radius:var(--radius);padding:12px 15px;margin-bottom:18px;font-size:.93rem}
 

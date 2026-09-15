@@ -215,12 +215,30 @@ export async function chatPage(threadChatId: number): Promise<string> {
 
   return page("Ask", "/chat", `
 <h1>Ask</h1>
-<p class="muted">Same brain as Telegram. Same conversation, from whichever device you're on.</p>
-<form method="post" action="/chat">
-  <textarea name="text" rows="3" placeholder="Ask it something…" required></textarea>
-  <button type="submit">Send</button>
-</form>
-<div style="margin-top:24px">${rendered || '<p class="empty">Nothing yet.</p>'}</div>
+<p class="muted">Same brain as Telegram, same conversation — whichever device you're on.</p>
+<div class="chat">
+  <div class="log" id="log">${rendered || '<p class="empty">Nothing yet.</p>'}</div>
+  <form class="composer" method="post" action="/chat" id="f">
+    <textarea name="text" rows="1" placeholder="Ask it something…" required autofocus></textarea>
+    <button type="submit">Send</button>
+  </form>
+</div>
+<script>
+// The only JavaScript in the console, and it earns its place: a reply can take
+// ten seconds, and without a pending state he presses Send again and the
+// question gets asked twice.
+(function(){
+  var log=document.getElementById('log'),f=document.getElementById('f');
+  var ta=f.querySelector('textarea'),b=f.querySelector('button');
+  log.scrollTop=log.scrollHeight;
+  function grow(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px';}
+  ta.addEventListener('input',grow);grow();
+  ta.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(ta.value.trim())f.requestSubmit();}
+  });
+  f.addEventListener('submit',function(){b.disabled=true;b.textContent='Thinking…';});
+})();
+</script>
 `);
 }
 
