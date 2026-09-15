@@ -16,7 +16,9 @@ const NAV: [string, string, string][] = [
   ["/", "Today", "now"],
   ["/tasks", "Tasks", "now"],
   ["/projects", "Projects", "now"],
+  ["/calendar", "Calendar", "now"],
   ["/desk", "Desk", "now"],
+  ["/farm", "Farm", "work"],
   ["/money", "Money", "work"],
   ["/study", "Study", "work"],
   ["/watchlist", "Watchlist", "work"],
@@ -24,7 +26,7 @@ const NAV: [string, string, string][] = [
   ["/rooms", "Rooms", "life"],
   ["/body", "Body", "life"],
   ["/search", "Search", "life"],
-  ["/chat", "Ask", "life"],
+  ["/chat", "Chat", "life"],
 ];
 const GROUPS: [string, string][] = [["now", "Now"], ["work", "Work"], ["life", "Life"]];
 

@@ -11,6 +11,9 @@ import { summary as moneySummary, outstanding, affordability, recentEntries, lis
 import { listTopics as listResearchTopics, recentFindings, listCandidates } from "../memory/research.js";
 import { listDecisions, findDecision, listOptions, listAssumptions, payback } from "../memory/decisions.js";
 import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
+import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
+         products as farmProducts } from "../memory/farm.js";
+import { listEvents, connectedAccount } from "../integrations/google.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -50,6 +53,8 @@ ${tasks.length} open tasks · ${projects.length} live projects</p>
   <textarea name="text" rows="3" placeholder="Throw something in — an idea, a number, a thing to do…" required></textarea>
   <button type="submit">Capture</button>
 </form>
+<p class="muted" style="margin-top:10px">That box files things away silently.
+To actually talk to him, go to <a href="/chat">Chat</a>.</p>
 
 ${overdue.length ? `<h2>Overdue</h2>${overdue.map((p) => `
 <div class="card"><div class="row"><h3>${escapeHtml(p.name)}</h3>
@@ -463,5 +468,93 @@ ${recent.length === 0 ? '<p class="empty">Nothing logged. Tell the bot: "chest a
 ${recent.map((r) => `<div class="hit"><time>${new Date(r.happened_on).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · ${r.kind}</time>
 ${escapeHtml(r.detail ?? "")}${r.calories ? ` · ${r.calories} cal` : ""}${r.protein_g ? ` · ${r.protein_g}g protein` : ""}${
   r.minutes ? ` · ${r.minutes} min` : ""}${r.weight_kg ? ` · ${r.weight_kg} kg` : ""}</div>`).join("")}
+`);
+}
+
+export async function farmPage(): Promise<string> {
+  const [{ totals, printers }, lines, prods] = await Promise.all([
+    farmStatus(3650), farmFilament(), farmProducts(200),
+  ]);
+  const fails = await farmFailures(3650);
+  const short = lowFilament(lines);
+  const stock = lines.reduce((a, l) => a + l.total_g, 0);
+  const g = (v: number) => `${Math.round(v)}g`;
+
+  return page("Farm", "/farm", `
+<h1>Farm</h1>
+<p class="muted">${totals.jobs} jobs · ${printers.length} printers · ${(stock / 1000).toFixed(1)} kg filament ·
+${prods.length} products</p>
+
+<h2>Pricing reality check</h2>
+<div class="card">
+  <div class="row"><h3>Failure uplift</h3>
+  <span class="tag${fails.wasted < fails.assumed ? " due" : ""}">${(fails.assumed * 100).toFixed(0)}% assumed</span></div>
+  <p>${fails.failed} of ${fails.jobs} prints failed (${(fails.rate * 100).toFixed(1)}%), dying on average
+  ${fails.diedAt}% of the way through — so real filament waste is about
+  <b>${(fails.wasted * 100).toFixed(1)}%</b>, not ${(fails.assumed * 100).toFixed(0)}%.</p>
+  <p>Every unit carries roughly ${(fails.assumed / (fails.wasted || 1)).toFixed(1)}× more failure cost than it should.</p>
+</div>
+
+<h2>Running out</h2>
+${short.length === 0 ? '<p class="empty">Nothing low.</p>' : short.slice(0, 12).map((l) => `
+<div class="card"><div class="row">
+  <h3>${escapeHtml(l.material)} ${escapeHtml(l.color ?? "")}</h3>
+  <span class="tag due">${g(l.total_g)}</span></div>
+<p>${l.sealed} sealed · ${g(l.open_g)} open</p></div>`).join("")}
+
+<h2>Printers</h2>
+<div class="grid">${printers.map((p: { printer_name: string; jobs: number; failed: number; avg_hours: string | null }) => `
+<div class="card"><div class="row"><h3>${escapeHtml(p.printer_name)}</h3>
+<span class="tag${p.failed > 0 ? " due" : " ok"}">${p.failed} failed</span></div>
+<p>${p.jobs} jobs${p.avg_hours ? ` · avg ${p.avg_hours}h` : ""}</p></div>`).join("")}</div>
+
+<h2>Filament</h2>
+${lines.map((l) => `<div class="card"><div class="row">
+<h3>${escapeHtml(l.material)} ${escapeHtml(l.color ?? "")}</h3>
+<span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span></div>
+<p>${escapeHtml(l.brand ?? "")} · ${l.sealed} sealed · ${g(l.open_g)} open</p></div>`).join("")}
+`);
+}
+
+export async function calendarPage(): Promise<string> {
+  const account = await connectedAccount();
+  if (!account) {
+    return page("Calendar", "/calendar", `
+<h1>Calendar</h1>
+<div class="flash">Google isn't connected. Send <b>/connect</b> to the bot.</div>`);
+  }
+
+  let events: Awaited<ReturnType<typeof listEvents>> = [];
+  let error = "";
+  try {
+    events = await listEvents({ to: new Date(Date.now() + 14 * 864e5), limit: 100 });
+  } catch (err) {
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  // Grouped by day, because a flat list of fourteen days reads as noise and the
+  // question is always "what does tomorrow look like", never "what is 31st".
+  const days = new Map<string, typeof events>();
+  for (const e of events) {
+    const start = e.start.dateTime ?? e.start.date;
+    if (!start) continue;
+    const key = new Date(start).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    days.set(key, [...(days.get(key) ?? []), e]);
+  }
+
+  const clock = (e: (typeof events)[number]) =>
+    e.start.dateTime
+      ? new Date(e.start.dateTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+      : "all day";
+
+  return page("Calendar", "/calendar", `
+<h1>Calendar</h1>
+<p class="muted">Next 14 days · ${escapeHtml(account)}</p>
+${error ? `<div class="flash">${escapeHtml(error)}</div>` : ""}
+${days.size === 0 ? '<p class="empty">Nothing scheduled.</p>' : [...days.entries()].map(([day, list]) => `
+<h2>${escapeHtml(day)}</h2>
+${list.map((e) => `<div class="card"><div class="row">
+<h3>${escapeHtml(e.summary ?? "(no title)")}</h3><span class="tag">${clock(e)}</span></div>
+${e.location ? `<p>${escapeHtml(e.location)}</p>` : ""}</div>`).join("")}`).join("")}
 `);
 }

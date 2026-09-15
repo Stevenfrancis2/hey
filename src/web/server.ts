@@ -14,6 +14,7 @@ import { MANIFEST } from "./layout.js";
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
   watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
+  farmPage, calendarPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
@@ -182,6 +183,9 @@ export async function startServer() {
   app.get("/watchlist", async (_r, reply) => reply.type("text/html").send(await watchlistPage()));
   app.get<{ Querystring: { q?: string } }>("/search", async (request, reply) =>
     reply.type("text/html").send(await searchPage(request.query.q)));
+  app.get("/farm", async (_r, reply) => reply.type("text/html").send(await farmPage()));
+  app.get("/calendar", async (_r, reply) => reply.type("text/html").send(await calendarPage()));
+
   app.get("/chat", async (_r, reply) =>
     reply.type("text/html").send(await chatPage(config.telegram.ownerId)));
 
