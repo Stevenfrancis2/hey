@@ -5,3 +5,4 @@ dist/
 *.log
 media/
 .neon
+*.tmp.ts
