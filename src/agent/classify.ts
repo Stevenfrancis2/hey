@@ -54,7 +54,7 @@ Pick the single best room. Money talk goes to finance even when it names another
 
 "Hey", "hi jarvis", "you there" and the like are him opening a conversation with you, not
 him logging a feeling. Those are questions — he is waiting for an answer and gets nothing
-if you call them anything else. Reserve `feeling` for something he says about his own life
+if you call them anything else. Reserve "feeling" for something he says about his own life
 or state, not for a greeting aimed at you.
 
 Be decisive; do not explain yourself.`;
