@@ -27,7 +27,7 @@ const NAV: [string, string, string][] = [
   ["/calendar", "Calendar", "now"],
   ["/desk", "Desk", "now"],
   ["/printers", "Printers", "work"],
-  ["/farm", "Farm", "work"],
+  ["/farm", "Filament", "work"],
   ["/pricing", "Pricing", "work"],
   ["/money", "Money", "work"],
   ["/study", "Study", "work"],
@@ -173,6 +173,10 @@ button:active{transform:translateY(1px)}
 .printer .name{font-weight:650;letter-spacing:-.012em}
 .printer .job{font-size:.86rem;color:var(--ink-2);margin:0 0 9px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
+.printer .left{display:flex;align-items:baseline;gap:9px;margin:2px 0 9px}
+.printer .left b{font-size:2.1rem;line-height:1;font-weight:700;letter-spacing:-.035em;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.printer .left span{font-size:.82rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .meter{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-bottom:9px}
 .meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
 .stats{display:flex;gap:14px;font-size:.82rem;color:var(--ink-2);
@@ -196,6 +200,16 @@ button:active{transform:translateY(1px)}
 .fbtns button:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
 .fbtns input[type=number]{width:74px;padding:6px 8px;min-height:34px;font-size:.84rem}
 @media (max-width:640px){.fil{flex-wrap:wrap}.fbtns{width:100%;margin-top:8px;justify-content:flex-end}}
+
+/* config grids: labelled number fields that stay readable on a phone */
+.cfgs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}
+.cfg{display:flex;flex-direction:column;gap:4px}
+.cfg>span{font-size:.79rem;color:var(--ink-3);font-weight:600;letter-spacing:.01em}
+.cfg input{padding:10px 12px}
+.prod .calc{font-variant-numeric:tabular-nums;margin-top:5px!important}
+button.ghost{background:transparent;color:var(--ink-3);padding:4px 0;min-height:32px;
+  font-weight:500;font-size:.84rem;margin:0}
+button.ghost:hover{color:var(--signal);filter:none}
 
 /* bits */
 .empty{color:var(--ink-3);font-size:.93rem;padding:22px 0;border:1px dashed var(--line);

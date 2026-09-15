@@ -271,7 +271,7 @@ export async function deleteProduct(id: string): Promise<void> {
 /** Every product with his formula already applied, for the price list. */
 export async function priceList() {
   const g = await globals();
-  const rows = await query<any>(`SELECT * FROM farm_products ORDER BY name`);
+  const rows = await query<any>(`SELECT * FROM farm_products ORDER BY updated_at DESC, name`);
   return rows.map((p) => ({
     ...p,
     computed: compute({

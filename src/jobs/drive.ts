@@ -13,6 +13,14 @@ import { indexCapture } from "../memory/index.js";
 export async function syncDrive(limit = 40): Promise<{ scanned: number; indexed: number }> {
   if (!isConfigured()) return { scanned: 0, indexed: 0 };
 
+  // Without a folder this indexes his entire Drive, which is how Google's own
+  // applet_access_history.json ended up in his second brain. One folder he
+  // deliberately drops things into, or nothing.
+  if (!config.google.driveFolderId) {
+    log.info("drive sync skipped — GOOGLE_DRIVE_FOLDER_ID not set");
+    return { scanned: 0, indexed: 0 };
+  }
+
   const watermark = await one<{ latest: Date | null }>(
     `SELECT max(modified_time) AS latest FROM drive_files`,
   );

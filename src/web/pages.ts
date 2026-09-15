@@ -474,70 +474,63 @@ ${escapeHtml(r.detail ?? "")}${r.calories ? ` · ${r.calories} cal` : ""}${r.pro
 }
 
 export async function farmPage(): Promise<string> {
-  const [{ totals, printers }, lines, prods] = await Promise.all([
-    farmStatus(3650), farmFilament(), farmProducts(200),
-  ]);
-  const fails = await farmFailures(3650);
+  const [lines, fails] = await Promise.all([farmFilament(), farmFailures(3650)]);
   const short = lowFilament(lines);
   const stock = lines.reduce((a, l) => a + l.total_g, 0);
   const g = (v: number) => `${Math.round(v)}g`;
 
-  return page("Farm", "/farm", `
-<h1>Farm</h1>
-<p class="muted">${totals.jobs} jobs · ${printers.length} printers · ${(stock / 1000).toFixed(1)} kg filament ·
-${prods.length} products</p>
-
-<h2>Pricing reality check</h2>
-<div class="card">
-  <div class="row"><h3>Failure uplift</h3>
-  <span class="tag${fails.wasted < fails.assumed ? " due" : ""}">${(fails.assumed * 100).toFixed(0)}% assumed</span></div>
-  <p>${fails.failed} of ${fails.jobs} prints failed (${(fails.rate * 100).toFixed(1)}%), dying on average
-  ${fails.diedAt}% of the way through — so real filament waste is about
-  <b>${(fails.wasted * 100).toFixed(1)}%</b>, not ${(fails.assumed * 100).toFixed(0)}%.</p>
-  <p>Every unit carries roughly ${(fails.assumed / (fails.wasted || 1)).toFixed(1)}× more failure cost than it should.</p>
-</div>
-
-<h2>Running out</h2>
-${short.length === 0 ? '<p class="empty">Nothing low.</p>' : short.slice(0, 12).map((l) => `
-<div class="card"><div class="row">
-  <h3>${escapeHtml(l.material)} ${escapeHtml(l.color ?? "")}</h3>
-  <span class="tag due">${g(l.total_g)}</span></div>
-<p>${l.sealed} sealed · ${g(l.open_g)} open</p></div>`).join("")}
-
-<h2>Printers</h2>
-<div class="grid">${printers.map((p: { printer_name: string; jobs: number; failed: number; avg_hours: string | null }) => `
-<div class="card"><div class="row"><h3>${escapeHtml(p.printer_name)}</h3>
-<span class="tag${p.failed > 0 ? " due" : " ok"}">${p.failed} failed</span></div>
-<p>${p.jobs} jobs${p.avg_hours ? ` · avg ${p.avg_hours}h` : ""}</p></div>`).join("")}</div>
-
-${(() => {
   const byBrand = new Map<string, typeof lines>();
   for (const l of lines) {
     const b = l.brand || "Unbranded";
     byBrand.set(b, [...(byBrand.get(b) ?? []), l]);
   }
-  return [...byBrand.entries()]
-    .sort((a, b) => b[1].length - a[1].length)
-    .map(([brand, items]) => {
-      const kg = items.reduce((a, l) => a + l.total_g, 0) / 1000;
-      return `<div class="brand"><h2>${escapeHtml(brand)}</h2>
-<span class="tag">${items.length} lines · ${kg.toFixed(1)} kg</span></div>
-${items.sort((a, b) => b.total_g - a.total_g).map((l) => `<div class="fil">
+
+  const row = (l: (typeof lines)[number]) => `<div class="fil">
   <span class="sw" style="background:#${escapeHtml(l.color_hex || "888888")}"></span>
   <span class="n"><b>${escapeHtml(l.color ?? "")}</b>
     <span>${escapeHtml(l.material)} · ${l.sealed} sealed · ${g(l.open_g)} open</span></span>
   <span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span>
   <span class="fbtns">
-    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="-1"><button title="One spool used">&minus;</button></form>
-    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="1"><button title="Bought one">+</button></form>
+    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="-1">
+      <button title="Used a spool">&minus;</button></form>
+    <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="1">
+      <button title="Bought a spool">+</button></form>
     <form method="post" action="/filament/${l.id}/open"><button title="Open a sealed spool">open</button></form>
-    <form method="post" action="/filament/${l.id}"><input type="number" name="grams" placeholder="${Math.round(l.open_g)}g" step="10" title="Grams left in the open spool"><button>set</button></form>
+    <form method="post" action="/filament/${l.id}">
+      <input type="number" name="grams" placeholder="${Math.round(l.open_g)}g" step="10"
+             title="Grams left in the open spool" inputmode="numeric">
+      <button>set</button></form>
   </span>
-</div>`).join("")}`;
-    }).join("");
-})()}
+</div>`;
+
+  return page("Filament", "/farm", `
+<h1>Filament</h1>
+<p class="muted">${(stock / 1000).toFixed(1)} kg across ${lines.length} lines.
+Minus when you use a spool, plus when you buy one, <b>open</b> to break the seal,
+<b>set</b> to correct the grams left in the open one.</p>
+
+${short.length ? `<h2>Running out</h2>${short.slice(0, 10).map(row).join("")}` : ""}
+
+${[...byBrand.entries()].sort((a, b) => b[1].length - a[1].length).map(([brand, items]) => {
+  const kg = items.reduce((a, l) => a + l.total_g, 0) / 1000;
+  return `<div class="brand"><h2>${escapeHtml(brand)}</h2>
+<span class="tag">${items.length} lines · ${kg.toFixed(1)} kg</span></div>
+${items.sort((a, b) => b.total_g - a.total_g).map(row).join("")}`;
+}).join("")}
+
+<h2>What the jobs say</h2>
+<div class="card">
+  <div class="row"><h3>Failure uplift</h3>
+  <span class="tag${fails.wasted < fails.assumed ? " due" : ""}">${(fails.assumed * 100).toFixed(0)}% assumed</span></div>
+  <p>${fails.failed} of ${fails.jobs} prints failed (${(fails.rate * 100).toFixed(1)}%), dying on average
+  ${fails.diedAt}% of the way through — so real filament waste is about
+  <b>${(fails.wasted * 100).toFixed(1)}%</b>. Every unit carries roughly
+  ${(fails.assumed / (fails.wasted || 1)).toFixed(1)}× more failure cost than it should.</p>
+  <p style="margin-top:6px"><a href="/pricing">Change it on Pricing</a></p>
+</div>
 `);
 }
+
 
 export async function calendarPage(): Promise<string> {
   const account = await connectedAccount();
@@ -594,18 +587,30 @@ export async function printersPage(): Promise<string> {
   const running = shots.filter((s) => s.state === "RUNNING").length;
   const errors = shots.filter((s) => s.hms.length > 0).length;
 
-  const mins = (m: number) => (m <= 0 ? "" : m < 60 ? `${m}m left` : `${Math.floor(m / 60)}h ${m % 60}m left`);
+  // Time left is the one number he opens this page for, so it is the biggest
+  // thing on the card and everything else is supporting detail.
+  const left = (m: number) => {
+    if (m <= 0) return "";
+    const h = Math.floor(m / 60), r = m % 60;
+    return h ? `${h}h ${String(r).padStart(2, "0")}m` : `${r}m`;
+  };
+  const doneAt = (m: number) =>
+    m <= 0 ? "" : new Date(Date.now() + m * 60_000)
+      .toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 
   const card = (s: (typeof shots)[number]) => {
     const cls = !s.online ? "off" : s.hms.length ? "err" : s.state === "RUNNING" ? "run" : "";
     const label = !s.online ? "offline" : s.stale ? "stale" : s.state.toLowerCase();
+    const isRunning = s.state === "RUNNING";
     return `<div class="printer ${cls}">
   <div class="top"><span class="name">${escapeHtml(s.name)}</span>
-    <span class="tag${s.hms.length ? " due" : s.state === "RUNNING" ? " ok" : ""}">${escapeHtml(label)}</span></div>
+    <span class="tag${s.hms.length ? " due" : isRunning ? " ok" : ""}">${escapeHtml(label)}</span></div>
+  ${isRunning ? `<div class="left"><b>${left(s.remainingMin)}</b>
+    <span>${doneAt(s.remainingMin) ? `done ${doneAt(s.remainingMin)}` : ""}</span></div>
+  <div class="meter"><i style="width:${Math.max(0, Math.min(100, s.percent))}%"></i></div>` : ""}
   <p class="job">${escapeHtml(s.job || "—")}</p>
-  ${s.state === "RUNNING" ? `<div class="meter"><i style="width:${Math.max(0, Math.min(100, s.percent))}%"></i></div>` : ""}
   <div class="stats">
-    ${s.state === "RUNNING" ? `<span>${s.percent}%</span><span>${s.layer}/${s.totalLayers}</span><span>${mins(s.remainingMin)}</span>` : ""}
+    ${isRunning ? `<span>${s.percent}%</span><span>layer ${s.layer}/${s.totalLayers}</span>` : ""}
     <span>N ${s.nozzle}°${s.nozzleTarget ? `/${s.nozzleTarget}` : ""}</span>
     <span>B ${s.bed}°${s.bedTarget ? `/${s.bedTarget}` : ""}</span>
   </div>
@@ -620,8 +625,8 @@ export async function printersPage(): Promise<string> {
   return page("Printers", "/printers", `
 <meta http-equiv="refresh" content="20">
 <h1>Printers</h1>
-<p class="muted">${shots.length} printers · ${running} printing · ${errors} with errors ·
-${live ? "live" : "reconnecting"} · refreshes every 20s</p>
+<p class="muted">All eight at once, so you never open Handy to check one.
+${running} printing · ${errors} with errors · ${live ? "live" : "reconnecting"} · refreshes every 20s</p>
 ${shots.length === 0 ? '<p class="empty">Waiting for the first report from Bambu Cloud…</p>'
   : `<div class="pgrid">${shots.map(card).join("")}</div>`}
 `);
@@ -629,24 +634,25 @@ ${shots.length === 0 ? '<p class="empty">Waiting for the first report from Bambu
 
 export async function pricingPage(): Promise<string> {
   const [g, items] = await Promise.all([farmGlobals(), priceList()]);
-  const m = (v: number | null | undefined) => (v == null ? "—" : `$${Number(v).toFixed(2)}`);
   const num = (name: string, label: string, value: number, step = "0.01") =>
-    `<label style="display:block;margin-bottom:9px"><span class="muted"
-      style="display:block;margin:0 0 3px;font-size:.84rem">${label}</span>
-      <input type="number" step="${step}" name="${name}" value="${value}"></label>`;
+    `<label class="cfg"><span>${label}</span>
+      <input type="number" step="${step}" name="${name}" value="${value}" data-k="${name}"
+             inputmode="decimal"></label>`;
+  const field = (name: string, label: string, extra = "", value = "") =>
+    `<label class="cfg"><span>${label}</span><input name="${name}" ${extra} value="${value}"></label>`;
 
   return page("Pricing", "/pricing", `
 <h1>Pricing</h1>
-<p class="muted">${items.length} products, costed with your own formula — filament, electricity,
-add-ons, failure uplift, then packaging.</p>
+<p class="muted">Every price recalculates as you type. Nothing is saved until you press Save,
+so you can push the filament price around and watch the whole list move.</p>
 
 <h2>Shop constants</h2>
-<form method="post" action="/pricing/globals">
-  <div class="grid">
+<form method="post" action="/pricing/globals" id="g">
+  <div class="cfgs">
     ${num("filament_price", "Filament $/kg", g.filament_price)}
     ${num("electricity_price", "Electricity $/kWh", g.electricity_price)}
     ${num("printer_power_kw", "Printer draw kW", g.printer_power_kw)}
-    ${num("h2c_multiplier", "H2C multiplier (solar)", g.h2c_multiplier)}
+    ${num("h2c_multiplier", "H2C multiplier", g.h2c_multiplier)}
     ${num("addon_part_cost", "Add-on part $", g.addon_part_cost)}
     ${num("packaging_cost", "Packaging $/unit", g.packaging_cost)}
     ${num("fail_rate", "Failure uplift", g.fail_rate)}
@@ -659,41 +665,68 @@ add-ons, failure uplift, then packaging.</p>
 
 <h2>Add a product</h2>
 <form method="post" action="/pricing/product">
-  <div class="grid">
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Name</span>
-      <input type="text" name="name" required></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Filament g</span>
-      <input type="number" step="1" name="filament_g" required></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Units per print</span>
-      <input type="number" step="1" name="units_per_print" required></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Days</span>
-      <input type="number" step="0.5" name="days" value="0"></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Hours</span>
-      <input type="number" step="0.5" name="hours" value="0"></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Add-on parts/unit</span>
-      <input type="number" step="1" name="addon_parts_per_unit" value="0"></label>
-    <label style="display:block"><span class="muted" style="display:block;margin:0 0 3px;font-size:.84rem">Your price $</span>
-      <input type="number" step="0.1" name="my_price"></label>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:22px">
-      <input type="checkbox" name="h2c" style="width:auto"> <span>Prints on the H2C</span></label>
+  <div class="cfgs">
+    ${field("name", "Name", "type=text required")}
+    ${field("filament_g", "Filament g (whole plate)", 'type=number step=1 required inputmode="numeric"')}
+    ${field("units_per_print", "Units per plate", 'type=number step=1 required inputmode="numeric"')}
+    ${field("days", "Days", 'type=number step=0.5 inputmode="decimal"', "0")}
+    ${field("hours", "Hours", 'type=number step=0.5 inputmode="decimal"', "0")}
+    ${field("addon_parts_per_unit", "Add-on parts/unit", 'type=number step=1 inputmode="numeric"', "0")}
+    ${field("my_price", "Your price $", 'type=number step=0.1 inputmode="decimal"')}
+    <label class="cfg" style="flex-direction:row;align-items:center;gap:9px">
+      <input type="checkbox" name="h2c" style="width:auto;margin:0"><span>Prints on the H2C</span></label>
   </div>
-  <button type="submit">Add and cost it</button>
+  <button type="submit">Add it</button>
 </form>
 
-<h2>Price list</h2>
-${items.map((p: any) => {
-  const c = p.computed;
-  const thin = c && c.my_markup != null && c.my_markup < 2;
-  return `<div class="card">
+<h2>Price list <span class="tag">newest first</span></h2>
+${items.length === 0 ? '<p class="empty">Nothing priced yet.</p>' : ""}
+${items.map((p: { id: string; name: string; h2c: boolean; filament_g: unknown; units_per_print: unknown;
+                  days: unknown; hours: unknown; addon_parts_per_unit: unknown; my_price: unknown }) => `<div class="card prod"
+  data-f="${Number(p.filament_g ?? 0)}" data-u="${Number(p.units_per_print ?? 0)}"
+  data-h="${Number(p.days ?? 0) * 24 + Number(p.hours ?? 0)}"
+  data-a="${Number(p.addon_parts_per_unit ?? 0)}" data-p="${p.my_price == null ? "" : Number(p.my_price)}"
+  data-c="${p.h2c ? 1 : 0}">
 <div class="row"><h3>${escapeHtml(p.name)}${p.h2c ? " · H2C" : ""}</h3>
-<span class="tag${thin ? " due" : c?.my_markup ? " ok" : ""}">${c?.my_markup ? `${c.my_markup.toFixed(1)}x` : "no price"}</span></div>
-<p>${p.units_per_print ?? "—"} units · ${p.filament_g ?? "—"}g · ${Number(p.days ?? 0) * 24 + Number(p.hours ?? 0)}h</p>
-${c ? `<p>cost <b>${m(c.total_cost_unit)}</b>/unit · 2x ${m(c.price_2x)} · 3x ${m(c.price_3x)} · 4x ${m(c.price_4x)}${
-  c.profit_unit != null ? ` · you charge ${m(p.my_price)}, profit <b>${m(c.profit_unit)}</b>` : ""}</p>`
- : `<p>Needs filament grams and units per print before it can be costed.</p>`}
+  <span class="tag mk">—</span></div>
+<p>${String(p.units_per_print ?? "—")} units · ${String(p.filament_g ?? "—")}g ·
+  ${Number(p.days ?? 0) * 24 + Number(p.hours ?? 0)}h</p>
+<p class="calc">—</p>
 <form method="post" action="/pricing/product/${p.id}/delete" style="margin-top:8px">
-  <button type="submit" style="background:transparent;color:var(--ink-3);padding:4px 0;min-height:0;font-weight:500;font-size:.84rem">Delete</button>
-</form></div>`;
-}).join("")}
+  <button type="submit" class="ghost">Delete</button></form></div>`).join("")}
+
+<script>
+// His formula from pricing.py, run in the browser so a constant can be dragged
+// around and the whole list answers instantly. Nothing here persists anything —
+// Save is still the only thing that writes.
+(function(){
+  var f=document.getElementById('g');
+  function v(k){var e=f.querySelector('[data-k="'+k+'"]');return e?parseFloat(e.value)||0:0;}
+  function money(x){return '$'+x.toFixed(2);}
+  function paint(){
+    var G={fil:v('filament_price'),kw:v('printer_power_kw'),el:v('electricity_price'),
+           h2c:v('h2c_multiplier'),ad:v('addon_part_cost'),pk:v('packaging_cost'),
+           fr:v('fail_rate'),m2:v('low_markup'),m3:v('mid_markup'),m4:v('high_markup')};
+    document.querySelectorAll('.prod').forEach(function(el){
+      var fg=+el.dataset.f,u=+el.dataset.u,h=+el.dataset.h,a=+el.dataset.a,c=+el.dataset.c;
+      var price=el.dataset.p===''?null:+el.dataset.p;
+      var out=el.querySelector('.calc'),mk=el.querySelector('.mk');
+      if(!u||!fg){out.textContent='Needs filament grams and units per plate.';mk.textContent='—';return;}
+      var total=((fg/1000*G.fil + h*G.kw*G.el*(c?G.h2c:1))/u + a*G.ad)*(1+G.fr)+G.pk;
+      var s='cost '+money(total)+'/unit · 2x '+money(total*G.m2)+' · 3x '+money(total*G.m3)+
+            ' · 4x '+money(total*G.m4);
+      if(price){
+        var markup=total?price/total:0;
+        s+=' · you charge '+money(price)+', profit '+money(price-total);
+        mk.textContent=markup.toFixed(1)+'x';
+        mk.className='tag mk '+(markup<G.m2?'due':'ok');
+      } else { mk.textContent='no price'; mk.className='tag mk'; }
+      out.textContent=s;
+    });
+  }
+  f.addEventListener('input',paint);
+  paint();
+})();
+</script>
 `);
 }
