@@ -46,5 +46,25 @@ export function verifySession(cookie: string | undefined): boolean {
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
+/**
+ * A password is the second way in, because the magic link needs Telegram and he
+ * is not always willing to open it. Optional: unset CONSOLE_PASSWORD and the
+ * form does not render, so nothing is weakened by default.
+ *
+ * Compared in constant time and only at full length, so the endpoint leaks
+ * neither the password nor its length to someone guessing.
+ */
+export function passwordEnabled(): boolean {
+  return (config.consolePassword ?? "").length > 0;
+}
+
+export function checkPassword(given: string): boolean {
+  const secret = config.consolePassword ?? "";
+  if (secret.length === 0) return false;
+  const a = createHmac("sha256", SECRET).update(given).digest();
+  const b = createHmac("sha256", SECRET).update(secret).digest();
+  return timingSafeEqual(a, b);
+}
+
 export const SESSION_COOKIE = "sven_session";
 export const SESSION_MAX_AGE = SESSION_DAYS * 86400;

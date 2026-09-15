@@ -651,3 +651,13 @@ CREATE TABLE IF NOT EXISTS farm_globals (
   id     boolean PRIMARY KEY DEFAULT true CHECK (id),
   values jsonb NOT NULL
 );
+
+-- Small key/value store for things the app learns about itself at runtime —
+-- the Telegram file_id of an uploaded asset, a spend watermark. Not settings he
+-- edits; settings he edits live in .env where they can be changed without a
+-- database.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        text PRIMARY KEY,
+  value      text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

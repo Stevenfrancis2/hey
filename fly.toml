@@ -1,5 +1,5 @@
-app = "sven"
-primary_region = "cdg"
+app = "second-steven"
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"

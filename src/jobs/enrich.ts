@@ -7,6 +7,7 @@ import { downloadFile } from "../integrations/telegram-files.js";
 import { classify, saveClassification } from "../agent/classify.js";
 import { respond } from "../agent/run.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
+import { isGreeting, sendJarvisVoice } from "../integrations/greeting.js";
 
 /**
  * Intents where he is talking *to* the assistant rather than *at* it, so the
@@ -83,6 +84,9 @@ export async function enrichCapture(api: Api, captureId: string): Promise<void> 
     // He never has to choose between noting something and asking something.
     // Everything is stored; a reply happens only when he actually asked.
     if (classification && NEEDS_THE_AGENT.has(classification.intent)) {
+      // Sent before the model runs, so the voice lands while it is still
+      // thinking rather than trailing the reply by several seconds.
+      if (isGreeting(text)) await sendJarvisVoice(api, chatId);
       await api.sendChatAction(chatId, "typing").catch(() => {});
       const reply = await respond(chatId, indexed);
       if (reply.trim().length > 0) {

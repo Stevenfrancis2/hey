@@ -8,6 +8,7 @@ import { log } from "../log.js";
 import { pool } from "../db/index.js";
 import {
   SESSION_COOKIE, SESSION_MAX_AGE, makeSession, redeemLoginToken, verifySession,
+  passwordEnabled, checkPassword,
 } from "./auth.js";
 import { MANIFEST } from "./layout.js";
 import {
@@ -22,11 +23,12 @@ import {
   connectedAccount, disconnect, redirectUri,
 } from "../integrations/google.js";
 import { randomBytes } from "node:crypto";
+import { jarvisAudioBytes } from "../integrations/greeting.js";
 
 // The Google callback carries no session cookie (Google redirects the browser
 // there), so it is guarded by a one-time state value instead.
 const OPEN_PATHS = new Set([
-  "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png",
+  "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png", "/jarvis.mp3",
   "/auth/google/callback",
 ]);
 
@@ -81,6 +83,26 @@ export async function startServer() {
     reply.type("text/html").send(loginPage("Not signed in on this device yet."));
   });
 
+  // Serving the asset rather than streaming bytes per request: 34 KB, cached
+  // hard, and the console plays the same file Telegram sends.
+  app.get("/jarvis.mp3", async (_r, reply) => {
+    reply.type("audio/mpeg").header("cache-control", "public, max-age=31536000, immutable")
+      .send(await jarvisAudioBytes());
+  });
+
+  app.post<{ Body: { password?: string } }>("/login", async (request, reply) => {
+    if (passwordEnabled() && checkPassword(request.body.password ?? "")) {
+      reply
+        .setCookie(SESSION_COOKIE, makeSession(), {
+          path: "/", httpOnly: true, sameSite: "lax",
+          secure: isProduction, maxAge: SESSION_MAX_AGE,
+        })
+        .redirect("/");
+      return;
+    }
+    reply.type("text/html").send(loginPage("Wrong password.", passwordEnabled()));
+  });
+
   app.get<{ Querystring: { t?: string } }>("/login", async (request, reply) => {
     const token = request.query.t;
     if (token && redeemLoginToken(token)) {
@@ -93,7 +115,10 @@ export async function startServer() {
       return;
     }
     reply.type("text/html").send(
-      loginPage(token ? "That link is used or expired — send /login again." : "Send /login to the bot."),
+      loginPage(
+        token ? "That link is used or expired — send /login again." : "Sign in to your console.",
+        passwordEnabled(),
+      ),
     );
   });
 

@@ -242,12 +242,19 @@ export async function chatPage(threadChatId: number): Promise<string> {
 `);
 }
 
-export function loginPage(message: string): string {
+export function loginPage(message: string, withPassword = false): string {
   return page("Sign in", "", `
 <h1>Sign in</h1>
-<p class="muted">Send <b>/login</b> to the bot on Telegram. It replies with a link — open it
-on this device and you're in for 90 days.</p>
 <div class="flash">${escapeHtml(message)}</div>
+${withPassword ? `
+<form method="post" action="/login" style="margin-bottom:22px">
+  <input type="password" name="password" placeholder="Password" autocomplete="current-password"
+         required autofocus>
+  <button type="submit">Sign in</button>
+</form>
+<p class="muted">Or send <b>/login</b> to the bot on Telegram for a one-tap link.</p>` : `
+<p class="muted">Send <b>/login</b> to the bot on Telegram. It replies with a link — open it
+on this device and you're in for 90 days.</p>`}
 `);
 }
 

@@ -48,6 +48,9 @@ export const config = {
     return randomBytes(32).toString("hex");
   })(),
 
+  /** Optional second way into the console, for when he will not open Telegram. */
+  consolePassword: optional("CONSOLE_PASSWORD", ""),
+
   /** Google Drive and Calendar. Optional — everything else works without them. */
   google: {
     clientId: optional("GOOGLE_CLIENT_ID", ""),
