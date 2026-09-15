@@ -14,6 +14,7 @@ import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body
 import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
          products as farmProducts } from "../memory/farm.js";
 import { listEvents, connectedAccount } from "../integrations/google.js";
+import { snapshots, isConfigured as bambuConfigured, connected as bambuConnected } from "../integrations/bambu.js";
 
 function when(d: Date | string | null): string {
   if (!d) return "";
@@ -509,11 +510,26 @@ ${short.length === 0 ? '<p class="empty">Nothing low.</p>' : short.slice(0, 12).
 <span class="tag${p.failed > 0 ? " due" : " ok"}">${p.failed} failed</span></div>
 <p>${p.jobs} jobs${p.avg_hours ? ` · avg ${p.avg_hours}h` : ""}</p></div>`).join("")}</div>
 
-<h2>Filament</h2>
-${lines.map((l) => `<div class="card"><div class="row">
-<h3>${escapeHtml(l.material)} ${escapeHtml(l.color ?? "")}</h3>
-<span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span></div>
-<p>${escapeHtml(l.brand ?? "")} · ${l.sealed} sealed · ${g(l.open_g)} open</p></div>`).join("")}
+${(() => {
+  const byBrand = new Map<string, typeof lines>();
+  for (const l of lines) {
+    const b = l.brand || "Unbranded";
+    byBrand.set(b, [...(byBrand.get(b) ?? []), l]);
+  }
+  return [...byBrand.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([brand, items]) => {
+      const kg = items.reduce((a, l) => a + l.total_g, 0) / 1000;
+      return `<div class="brand"><h2>${escapeHtml(brand)}</h2>
+<span class="tag">${items.length} lines · ${kg.toFixed(1)} kg</span></div>
+${items.sort((a, b) => b.total_g - a.total_g).map((l) => `<div class="fil">
+  <span class="sw" style="background:#${escapeHtml(l.color_hex || "888888")}"></span>
+  <span class="n"><b>${escapeHtml(l.color ?? "")}</b>
+    <span>${escapeHtml(l.material)} · ${l.sealed} sealed · ${g(l.open_g)} open</span></span>
+  <span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span>
+</div>`).join("")}`;
+    }).join("");
+})()}
 `);
 }
 
@@ -557,5 +573,50 @@ ${days.size === 0 ? '<p class="empty">Nothing scheduled.</p>' : [...days.entries
 ${list.map((e) => `<div class="card"><div class="row">
 <h3>${escapeHtml(e.summary ?? "(no title)")}</h3><span class="tag">${clock(e)}</span></div>
 ${e.location ? `<p>${escapeHtml(e.location)}</p>` : ""}</div>`).join("")}`).join("")}
+`);
+}
+
+export async function printersPage(): Promise<string> {
+  if (!bambuConfigured()) {
+    return page("Printers", "/printers", `
+<h1>Printers</h1>
+<div class="flash">Bambu Cloud isn't configured, so there's no live status.</div>`);
+  }
+
+  const shots = snapshots();
+  const live = bambuConnected();
+  const running = shots.filter((s) => s.state === "RUNNING").length;
+  const errors = shots.filter((s) => s.hms.length > 0).length;
+
+  const mins = (m: number) => (m <= 0 ? "" : m < 60 ? `${m}m left` : `${Math.floor(m / 60)}h ${m % 60}m left`);
+
+  const card = (s: (typeof shots)[number]) => {
+    const cls = !s.online ? "off" : s.hms.length ? "err" : s.state === "RUNNING" ? "run" : "";
+    const label = !s.online ? "offline" : s.stale ? "stale" : s.state.toLowerCase();
+    return `<div class="printer ${cls}">
+  <div class="top"><span class="name">${escapeHtml(s.name)}</span>
+    <span class="tag${s.hms.length ? " due" : s.state === "RUNNING" ? " ok" : ""}">${escapeHtml(label)}</span></div>
+  <p class="job">${escapeHtml(s.job || "—")}</p>
+  ${s.state === "RUNNING" ? `<div class="meter"><i style="width:${Math.max(0, Math.min(100, s.percent))}%"></i></div>` : ""}
+  <div class="stats">
+    ${s.state === "RUNNING" ? `<span>${s.percent}%</span><span>${s.layer}/${s.totalLayers}</span><span>${mins(s.remainingMin)}</span>` : ""}
+    <span>N ${s.nozzle}°${s.nozzleTarget ? `/${s.nozzleTarget}` : ""}</span>
+    <span>B ${s.bed}°${s.bedTarget ? `/${s.bedTarget}` : ""}</span>
+  </div>
+  ${s.trays.length ? `<div class="trays">${s.trays.map((t) =>
+    `<span class="sw${t.active ? " on" : ""}" style="background:#${escapeHtml(t.color)}"
+      title="${escapeHtml(t.type)}${t.remain >= 0 ? ` · ${t.remain}%` : ""}"></span>`).join("")}</div>` : ""}
+  ${s.hms.length ? `<div class="hms">${s.hms.slice(0, 3).map((h) =>
+    `${escapeHtml(h.severity)}: ${escapeHtml(h.text)}`).join("<br>")}</div>` : ""}
+</div>`;
+  };
+
+  return page("Printers", "/printers", `
+<meta http-equiv="refresh" content="20">
+<h1>Printers</h1>
+<p class="muted">${shots.length} printers · ${running} printing · ${errors} with errors ·
+${live ? "live" : "reconnecting"} · refreshes every 20s</p>
+${shots.length === 0 ? '<p class="empty">Waiting for the first report from Bambu Cloud…</p>'
+  : `<div class="pgrid">${shots.map(card).join("")}</div>`}
 `);
 }

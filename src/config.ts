@@ -51,6 +51,13 @@ export const config = {
   /** Optional second way into the console, for when he will not open Telegram. */
   consolePassword: optional("CONSOLE_PASSWORD", ""),
 
+  /** Bambu Cloud, for live printer status. Optional; the farm pages work without it. */
+  bambu: {
+    username: optional("BAMBU_USERNAME", ""),
+    accessToken: optional("BAMBU_ACCESS_TOKEN", ""),
+    refreshToken: optional("BAMBU_REFRESH_TOKEN", ""),
+  },
+
   /** Google Drive and Calendar. Optional — everything else works without them. */
   google: {
     clientId: optional("GOOGLE_CLIENT_ID", ""),

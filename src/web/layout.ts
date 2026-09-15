@@ -26,6 +26,7 @@ const NAV: [string, string, string][] = [
   ["/projects", "Projects", "now"],
   ["/calendar", "Calendar", "now"],
   ["/desk", "Desk", "now"],
+  ["/printers", "Printers", "work"],
   ["/farm", "Farm", "work"],
   ["/money", "Money", "work"],
   ["/study", "Study", "work"],
@@ -158,6 +159,35 @@ button{background:var(--accent);color:var(--bg);border:0;border-radius:var(--rad
   min-height:44px;transition:filter .15s,transform .06s}
 button:hover{filter:brightness(1.08)}
 button:active{transform:translateY(1px)}
+
+/* printers: eight at a glance, which is the entire point — he built this to
+   stop switching between printers in Handy one at a time. */
+.pgrid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr))}
+.printer{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;box-shadow:var(--raise)}
+.printer.run{border-color:color-mix(in srgb,var(--ok) 45%,transparent)}
+.printer.err{border-color:color-mix(in srgb,var(--signal) 55%,transparent)}
+.printer.off{opacity:.55}
+.printer .top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+.printer .name{font-weight:650;letter-spacing:-.012em}
+.printer .job{font-size:.86rem;color:var(--ink-2);margin:0 0 9px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.meter{height:6px;background:var(--surface-2);border-radius:99px;overflow:hidden;margin-bottom:9px}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:99px}
+.stats{display:flex;gap:14px;font-size:.82rem;color:var(--ink-2);
+  font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.trays{display:flex;gap:5px;margin-top:10px}
+.sw{width:19px;height:19px;border-radius:5px;border:1px solid var(--line-2);flex:none}
+.sw.on{outline:2px solid var(--accent);outline-offset:1px}
+.hms{margin-top:9px;font-size:.82rem;color:var(--signal);line-height:1.45}
+.brand{display:flex;align-items:center;gap:9px;margin:26px 0 9px}
+.brand h2{margin:0}
+.fil{display:flex;align-items:center;gap:11px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;margin-bottom:6px}
+.fil .sw{width:26px;height:26px;border-radius:7px}
+.fil .n{flex:1;min-width:0}
+.fil .n b{font-weight:600;font-size:.95rem}
+.fil .n span{display:block;font-size:.81rem;color:var(--ink-3)}
 
 /* bits */
 .empty{color:var(--ink-3);font-size:.93rem;padding:22px 0;border:1px dashed var(--line);

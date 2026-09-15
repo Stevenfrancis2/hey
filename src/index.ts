@@ -6,6 +6,7 @@ import { bot } from "./bot/index.js";
 import { startJobs, stopJobs } from "./jobs/index.js";
 import { startServer } from "./web/server.js";
 import { seedProfile } from "./agent/prompt.js";
+import { start as startBambu } from "./integrations/bambu.js";
 
 async function main(): Promise<void> {
   await migrate();
@@ -16,6 +17,10 @@ async function main(): Promise<void> {
   // briefly unreachable at boot, the platform health check must still pass
   // rather than restart-looping the machine.
   const app = await startServer();
+
+  // Live printer status. Never awaited into the critical path — the farm being
+  // unreachable must not stop the brain from booting.
+  void startBambu().catch((err) => log.warn({ err }, "bambu live status failed to start"));
 
   // Cosmetic. Never worth failing a boot over.
   await bot.api

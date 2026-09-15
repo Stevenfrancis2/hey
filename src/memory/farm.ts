@@ -37,16 +37,17 @@ const n = (v: unknown): number => (v == null ? 0 : Number(v));
 // ── Filament ──────────────────────────────────────────────
 export type Line = {
   id: string; brand: string | null; material: string; color: string | null;
+  color_hex: string | null;
   sealed: number; open_g: number; total_g: number; threshold_g: number;
 };
 
 export async function filament(): Promise<Line[]> {
   const rows = await query<any>(
-    `SELECT id, brand, material, color, quantity, spool_weight_g, threshold_g,
+    `SELECT id, brand, material, color, color_hex, quantity, spool_weight_g, threshold_g,
             coalesce((SELECT sum(x::numeric) FROM jsonb_array_elements_text(open_spools) x), 0) AS open_g
      FROM farm_filament ORDER BY material, color`);
   return rows.map((r) => ({
-    id: r.id, brand: r.brand, material: r.material, color: r.color,
+    id: r.id, brand: r.brand, material: r.material, color: r.color, color_hex: r.color_hex,
     sealed: n(r.quantity),
     open_g: n(r.open_g),
     total_g: n(r.quantity) * n(r.spool_weight_g) + n(r.open_g),
