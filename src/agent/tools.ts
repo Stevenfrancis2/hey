@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as farm from "../memory/farm.js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
 import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
@@ -1019,6 +1020,129 @@ export const webSearchTool = {
   max_uses: 6,
 };
 
+// ── The print farm ────────────────────────────────────────
+export const farmStatusTool = betaZodTool({
+  name: "farm_status",
+  description:
+    "The state of the Bambu print farm: how many jobs ran, how they went, per-printer " +
+    "failure counts, and which filament is running out. Use for anything about the " +
+    "printers, the farm, or what he can print right now.",
+  inputSchema: z.object({
+    days: z.number().int().min(1).max(365).optional().describe("Window, default 30"),
+  }),
+  run: async ({ days }) => {
+    const { totals, printers } = await farm.farmStatus(days ?? 30);
+    const lines = await farm.filament();
+    const short = farm.low(lines);
+    const stock = lines.reduce((a, l) => a + l.total_g, 0);
+    return [
+      `Last ${days ?? 30} days: ${totals.jobs} jobs, ${totals.failed} failed` +
+        (totals.avg_hours ? `, average successful print ${totals.avg_hours}h` : ""),
+      totals.last_job
+        ? `Last job ended ${new Date(totals.last_job).toISOString().slice(0, 16).replace("T", " ")}`
+        : "No jobs in this window.",
+      ``,
+      `Filament on hand: ${(stock / 1000).toFixed(1)} kg across ${lines.length} lines.`,
+      short.length
+        ? `Running out: ${short.slice(0, 8).map((l) => `${l.material} ${l.color} (${Math.round(l.total_g)}g)`).join(", ")}`
+        : `Nothing low.`,
+      ``,
+      `By printer:`,
+      ...printers.map((p: any) =>
+        `  ${p.printer_name}: ${p.jobs} jobs, ${p.failed} failed` + (p.avg_hours ? `, avg ${p.avg_hours}h` : "")),
+    ].join("\n");
+  },
+});
+
+export const filamentTool = betaZodTool({
+  name: "filament_stock",
+  description:
+    "Filament stock by material and colour — sealed spools, grams left in open spools, " +
+    "and what is running out. Use before telling him he can print something.",
+  inputSchema: z.object({
+    material: z.string().optional().describe("Filter, e.g. PLA, PETG, ASA"),
+    low_only: z.boolean().optional(),
+  }),
+  run: async ({ material, low_only }) => {
+    let lines = await farm.filament();
+    if (material) lines = lines.filter((l) => l.material.toLowerCase().includes(material.toLowerCase()));
+    if (low_only) lines = farm.low(lines);
+    if (lines.length === 0) return "Nothing matches.";
+    return lines
+      .map((l) => `${l.material} ${l.color ?? ""} — ${l.sealed} sealed + ${Math.round(l.open_g)}g open = ${Math.round(l.total_g)}g`)
+      .join("\n");
+  },
+});
+
+export const farmFailuresTool = betaZodTool({
+  name: "farm_failures",
+  description:
+    "Failure rate, how far through prints actually die, the resulting wasted filament, " +
+    "and how that compares to the failure uplift his pricing assumes. Use when he asks " +
+    "about failures, waste, or whether his prices are right.",
+  inputSchema: z.object({ days: z.number().int().min(1).max(3650).optional() }),
+  run: async ({ days }) => {
+    const f = await farm.failures(days ?? 3650);
+    if (f.jobs === 0) return "No jobs in that window.";
+    return [
+      `${f.failed} of ${f.jobs} jobs failed (${(f.rate * 100).toFixed(1)}%).`,
+      `Failures died on average ${f.diedAt}% of the way through.`,
+      `So actual filament wasted is about ${(f.wasted * 100).toFixed(1)}%.`,
+      `His pricing assumes a ${(f.assumed * 100).toFixed(0)}% failure uplift — ` +
+        (f.wasted < f.assumed
+          ? `roughly ${(f.assumed / (f.wasted || 1)).toFixed(1)}x more than reality, so he is pricing high.`
+          : `under what actually happens, so he is absorbing the difference.`),
+      f.worst.length
+        ? `Worst printers: ${f.worst.map((w: any) => `${w.printer_name} ${w.failed}/${w.jobs}`).join(", ")}`
+        : "",
+    ].filter(Boolean).join("\n");
+  },
+});
+
+export const jobCostingTool = betaZodTool({
+  name: "job_costing",
+  description:
+    "What a product actually costs to make versus what he estimated, and the real margin " +
+    "at his price. Crosses his pricing sheet against jobs that actually ran. Use for " +
+    "'am I making money on X', 'is X underpriced', or any question about margin.",
+  inputSchema: z.object({ product: z.string().describe("Product name, roughly") }),
+  run: async ({ product }) => {
+    const c = await farm.costing(product);
+    if (!c) return `No product matching "${product}".`;
+    const m = (v: number) => `$${v.toFixed(2)}`;
+    const out = [
+      `${c.product} — he charges ${m(c.my_price)}, ${c.units} units per print.`,
+      ``,
+      `Estimated: ${c.est_hours}h per print -> ${m(c.unit_cost_est)}/unit -> margin ${m(c.margin_est)}`,
+    ];
+    if (c.actual_hours == null) {
+      // His printers report the slicer profile, not the model, so most products
+      // have nothing to cross against. Showing the real job names turns a dead
+      // end into a question he can answer in one line.
+      const cand = await farm.unmappedJobs(6);
+      out.push(
+        ``,
+        `No jobs in the farm history match that name, so this is the estimate only.`,
+        cand.length
+          ? `The farm's real job names are: ${cand.map((j: any) => `${j.job_name} (${j.jobs} prints, avg ${j.avg_hours}h)`).join("; ")}. ` +
+            `Ask him which of those is this product and the actual figure becomes possible.`
+          : ``,
+      );
+    } else {
+      out.push(
+        `Actual:    ${c.actual_hours}h across ${c.matched_jobs} real prints -> ${m(c.unit_cost_actual!)}/unit -> margin ${m(c.margin_actual!)}`,
+        ``,
+        c.actual_hours < c.est_hours
+          ? `It prints ${(c.est_hours / c.actual_hours).toFixed(1)}x faster than the sheet says, so the electricity line is overstated.`
+          : `It takes longer than the sheet says, so the sheet flatters the margin.`,
+      );
+      if (c.matched_jobs < 3) out.push(`Only ${c.matched_jobs} matching jobs — treat the actual figure as weak.`);
+    }
+    out.push(``, `Per print: filament ${m(c.filament_cost)} · power ${m(c.power_cost_est)} est · addons ${m(c.addon_cost)} · packaging ${m(c.packaging_cost)}`);
+    return out.join("\n");
+  },
+});
+
 export const clientTools = [
   recallTool,
   createTaskTool,
@@ -1066,6 +1190,10 @@ export const clientTools = [
   listGearTool,
   addGearTool,
   setGearStatusTool,
+  farmStatusTool,
+  filamentTool,
+  farmFailuresTool,
+  jobCostingTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

@@ -593,3 +593,61 @@ CREATE TABLE IF NOT EXISTS drive_files (
 CREATE INDEX IF NOT EXISTS drive_files_modified_idx ON drive_files (modified_time DESC);
 
 -- pg-boss creates and owns its own schema in this same database.
+
+-- ─────────────────────────────────────────────────────────────
+-- THE PRINT FARM — imported from the Raspberry Pi manager
+--
+-- The Pi held three stores that never knew about each other: what actually
+-- ran, what filament is on the shelf, and what he charges. Bringing them in
+-- next to the ledger is the whole point — "that job was underpriced" is a
+-- sentence none of the three can say alone.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS farm_jobs (
+  id             bigserial PRIMARY KEY,
+  dev_id         text NOT NULL,
+  printer_name   text NOT NULL,          -- normalised: the Pi's casing was inconsistent
+  job_name       text,
+  start_ts       timestamptz,
+  end_ts         timestamptz,
+  outcome        text,                   -- FINISH|FAILED
+  duration_s     integer,
+  percent_at_end numeric(5,2),
+  task_id        text,
+  UNIQUE (dev_id, task_id, end_ts)       -- re-importing the same window is a no-op
+);
+CREATE INDEX IF NOT EXISTS farm_jobs_end_idx     ON farm_jobs (end_ts DESC);
+CREATE INDEX IF NOT EXISTS farm_jobs_printer_idx ON farm_jobs (printer_name);
+CREATE INDEX IF NOT EXISTS farm_jobs_name_idx    ON farm_jobs USING gin (job_name gin_trgm_ops);
+
+CREATE TABLE IF NOT EXISTS farm_filament (
+  id             text PRIMARY KEY,       -- the Pi's own line id
+  brand          text,
+  material       text NOT NULL,
+  color          text,
+  color_hex      text,
+  spool_weight_g numeric(8,1) NOT NULL DEFAULT 1000,
+  quantity       integer NOT NULL DEFAULT 0,   -- sealed spools
+  threshold_g    numeric(8,1) NOT NULL DEFAULT 0,
+  open_spools    jsonb NOT NULL DEFAULT '[]',  -- grams left in each opened spool
+  updated_at     timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS farm_products (
+  id                   text PRIMARY KEY,
+  name                 text NOT NULL,
+  h2c                  boolean NOT NULL DEFAULT false,
+  filament_g           numeric(8,1),     -- ESTIMATED by him, not measured
+  days                 numeric(5,2),
+  hours                numeric(5,2),
+  units_per_print      numeric(8,2),
+  addon_parts_per_unit numeric(6,2) NOT NULL DEFAULT 0,
+  my_price             numeric(10,2),
+  updated_at           timestamptz NOT NULL DEFAULT now()
+);
+
+-- One row. The costing constants he set on the Pi; electricity is Lebanon's
+-- generator price, which is why it dominates the model.
+CREATE TABLE IF NOT EXISTS farm_globals (
+  id     boolean PRIMARY KEY DEFAULT true CHECK (id),
+  values jsonb NOT NULL
+);
