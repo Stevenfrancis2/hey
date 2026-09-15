@@ -8,6 +8,7 @@ import { runArchive } from "./archive.js";
 import { runResearch, runScout } from "./research.js";
 import { syncDrive } from "./drive.js";
 import { config } from "../config.js";
+import { status as budgetStatus, warnIfNeeded } from "../memory/budget.js";
 
 export const ENRICH_QUEUE = "capture.enrich";
 const TICK_QUEUE = "reminders.tick";
@@ -66,14 +67,23 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.work(ARCHIVE_QUEUE, { batchSize: 1 }, async () => {
     await runArchive(api, chatId, false);
   });
+  // The desk is the only thing here worth stopping at the ceiling. Everything
+  // else costs fractions of a cent and is what he actually relies on.
+  const deskAllowed = async (): Promise<boolean> => {
+    await warnIfNeeded(api, chatId);
+    const s = await budgetStatus();
+    if (s.overBudget) log.warn({ spent: s.spent, budget: s.budget }, "desk skipped: over budget");
+    return !s.overBudget;
+  };
+
   await instance.work(DESK_DAILY_QUEUE, { batchSize: 1 }, async () => {
-    await runResearch(api, chatId, "daily");
+    if (await deskAllowed()) await runResearch(api, chatId, "daily");
   });
   await instance.work(DESK_WEEKLY_QUEUE, { batchSize: 1 }, async () => {
-    await runResearch(api, chatId, "weekly");
+    if (await deskAllowed()) await runResearch(api, chatId, "weekly");
   });
   await instance.work(SCOUT_QUEUE, { batchSize: 1 }, async () => {
-    await runScout(api, chatId);
+    if (await deskAllowed()) await runScout(api, chatId);
   });
   await instance.work(DRIVE_QUEUE, { batchSize: 1 }, async () => {
     await syncDrive();

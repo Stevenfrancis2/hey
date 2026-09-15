@@ -1,5 +1,7 @@
 import { z } from "zod";
 import * as farm from "../memory/farm.js";
+import * as markets from "../integrations/markets.js";
+import * as budget from "../memory/budget.js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
 import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
@@ -1192,6 +1194,49 @@ export const priceProductTool = betaZodTool({
   },
 });
 
+export const marketReadTool = betaZodTool({
+  name: "market_read",
+  description:
+    "Real price data and indicators for a crypto pair, computed from actual candles — " +
+    "moving averages, RSI, ATR, range and volume. Use this before saying anything about " +
+    "price or a chart. Never read levels off a screenshot when you can compute them.",
+  inputSchema: z.object({
+    symbol: z.string().default("BTCUSDT").describe("Binance pair, e.g. BTCUSDT, ETHUSDT, SOLUSDT"),
+    interval: z.enum(["15m", "1h", "4h", "1d", "1w"]).default("1d")
+      .describe("1d or 1w for the long-term picture, 4h or 1h for the short-term one"),
+  }),
+  run: async ({ symbol, interval }) => {
+    const r = await markets.safeRead(symbol.toUpperCase(), interval, 250);
+    if (!r) return `Could not get price data for ${symbol}.`;
+    return markets.format(r) +
+      `\n\nThese are computed from real candles. Interpret them, say what would change the ` +
+      `picture, and do not tell him to buy or sell.`;
+  },
+});
+
+export const budgetTool = betaZodTool({
+  name: "spend",
+  description:
+    "What Steven has spent on AI this month against his budget, and setting that budget. " +
+    "Use when he asks what this is costing him, or tells you to raise or lower the limit.",
+  inputSchema: z.object({
+    set_budget_usd: z.number().min(1).max(1000).optional()
+      .describe("Only when he asks to change it"),
+  }),
+  run: async ({ set_budget_usd }) => {
+    if (set_budget_usd) await budget.setBudget(set_budget_usd);
+    const s = await budget.status();
+    const m = (v: number) => `$${v.toFixed(2)}`;
+    return [
+      set_budget_usd ? `Budget set to ${m(set_budget_usd)}.` : "",
+      `${m(s.spent)} spent this month of a ${m(s.budget)} budget (${Math.round(s.pct)}%).`,
+      s.overBudget
+        ? `The research desk is paused. Capture, replies and reminders are unaffected.`
+        : `Everything running normally.`,
+    ].filter(Boolean).join("\n");
+  },
+});
+
 export const clientTools = [
   recallTool,
   createTaskTool,
@@ -1244,6 +1289,8 @@ export const clientTools = [
   farmFailuresTool,
   jobCostingTool,
   priceProductTool,
+  marketReadTool,
+  budgetTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];
