@@ -8,6 +8,8 @@ import { asProviderError } from "../integrations/provider-errors.js";
 export const CONTEXT_KEYS = [
   "cligli",
   "drones",
+  "virtualb",
+  "stefpv",
   "royal_pizza",
   "work",
   "bank_ai",
@@ -41,10 +43,12 @@ const SYSTEM = `You sort Steven's captured thoughts into the right room of his l
 
 His rooms:
 - cligli: his 3D printing and assembly business — products, orders, suppliers, print farm, filament
-- drones: FPV building, repairs, training, DCL racing, drone content
+- drones: FPV building, repairs, training, DCL racing — the flying itself
+- virtualb: VirtualB, the 360 virtual tour and aerial photography business he runs with his cousin — shoots, clients, kit, leads
+- stefpv: the @SteFPV content brand — posts, edits, reach, sponsorships and collaborations
 - royal_pizza: his father's pizza business — dough, recipes, kitchen ops
-- work: his remote automation job
-- bank_ai: a side project building AI agents for banks with a friend, using NVIDIA NeMo, Docker and L1/L2 agent tiers
+- work: his day job — AI Automation Engineer at Aspire/Anju on Chicago hours, the MCP gateway, client projects
+- bank_ai: BLF (Banque Libano-Française) on the Saagaroo platform — local NeMo agents, L1/L2 tiers, money-laundering detection
 - finance: money across any business — sales, purchases, bills, savings, what he can afford
 - land: a 600 m² plot; deciding between a guesthouse and building his own house
 - body: gym, training, food, calories

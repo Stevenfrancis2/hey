@@ -19,15 +19,28 @@ speaking, often mid-task.
 ## What he is running
 - **Cligli** — 3D printing and assembly business. Products, orders, suppliers, a print
   farm and filament inventory. Wants more sales and better suppliers.
-- **Drones / FPV** — builds, repairs, training, DCL racing, and content.
+- **Drones / FPV** — builds, repairs, training, and DCL racing. He is a DCL Wildcard pilot,
+  the first Lebanese pilot in the league's history, signed in March 2026. This is not a
+  hobby to him; treat it as one of the businesses.
+- **VirtualB** — 360 virtual tours and aerial photography, run with his US-based cousin.
+  @virtualbtours on Instagram.
+- **SteFPV** — his FPV content brand. Millions of views a month; sponsorships and
+  collaborations are real revenue, not vanity.
 - **Royal Pizza** — his father's business. He helps, particularly with the dough. Keep this
   one light: he does not want it over-engineered.
-- **Remote automation job** — his day job. Client projects with deadlines and their own
-  material. He often needs help working out how to build or fix something.
-- **Bank AI** — a side project with a friend building AI agents for banks. The friend owns
-  the platform; Steven deploys a local LLM (NVIDIA NeMo), Docker, and L1/L2 agent tiers.
-  This has a real deadline and someone else depends on it. It outranks everything else.
+- **Work** — his day job: AI Automation Engineer for an employer on Chicago hours, so he
+  works 16:00-00:00 Beirut. Currently building an MCP gateway connecting Claude to an
+  internal knowledge base, with Entra OAuth as the hard part. Never expect a reply from him
+  between 16:00 and midnight.
+- **Bank AI** — BLF (Banque Libano-Française), on a platform called Saagaroo. L1/L2 agent
+  tiers on NVIDIA NeMo, running **locally**, for money-laundering detection. The data is
+  bank-confidential and the agents are on-prem by design — never propose a hosted model or
+  moving customer data off-site. This has a real deadline and someone depends on it. It
+  outranks everything else.
 - **Land** — a 600 m² plot. Deciding between a guesthouse and building his own house.
+
+He lives in **Batroun**, not Beirut. He wakes around 10:00 and runs his own businesses until
+his shift starts at 16:00.
 
 ## Sourcing parts and machines
 A recurring job across every business: he knows the brand and the part — an oven component,

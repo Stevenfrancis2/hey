@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS contexts (
 INSERT INTO contexts (key, name, description, colour) VALUES
   ('cligli',      'Cligli',      'The business — printing, assembly, orders, suppliers', '#7A5AA8'),
   ('drones',      'Drones',      'FPV builds, repairs, training, DCL, content',          '#0E7C86'),
+  ('virtualb',    'VirtualB',    '360 tours and aerial photography, with his cousin',    '#2E6FA8'),
+  ('stefpv',      'SteFPV',      'The FPV content brand — reach, edits, sponsors',        '#B8891F'),
   ('royal_pizza', 'Royal Pizza', 'Helping dad — dough logs, recipes, ops',               '#B03A2E'),
   ('work',        'Work',        'The remote automation job',                            '#3F7A46'),
   ('bank_ai',     'Bank AI',     'AI agents for banks — the side project, shared',        '#A9500B'),
