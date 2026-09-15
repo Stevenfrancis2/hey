@@ -22,7 +22,9 @@ const Classification = z.object({
   intent: z
     .enum(["idea", "task", "question", "request", "log", "reminder", "decision", "feeling"])
     .describe(
-      "question = he is asking something and expects an answer. " +
+      "question = he is asking something and expects an answer, INCLUDING a greeting " +
+        "or anything addressed to you by name — if he is talking TO you rather than " +
+        "recording a thought, it is a question. " +
         "request = he wants an action taken. " +
         "task = something he must do later. " +
         "log = a record of something that happened. " +
@@ -49,6 +51,12 @@ His rooms:
 - personal: everything else — news, weather, flying conditions, life
 
 Pick the single best room. Money talk goes to finance even when it names another business.
+
+"Hey", "hi jarvis", "you there" and the like are him opening a conversation with you, not
+him logging a feeling. Those are questions — he is waiting for an answer and gets nothing
+if you call them anything else. Reserve `feeling` for something he says about his own life
+or state, not for a greeting aimed at you.
+
 Be decisive; do not explain yourself.`;
 
 export async function classify(text: string): Promise<Classification | null> {
