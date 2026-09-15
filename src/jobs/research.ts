@@ -2,6 +2,7 @@ import type { Api } from "grammy";
 import { generate } from "../agent/run.js";
 import { dueTopics, saveFinding, markRun, lastFinding } from "../memory/research.js";
 import { log } from "../log.js";
+import { config } from "../config.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 /**
@@ -33,18 +34,30 @@ export async function runResearch(
         : `This is the first digest for this topic, so a short baseline is fine.`,
       ``,
       `Use web search. Rules:`,
-      `- Three to six items maximum. If nothing real happened, say "nothing worth reporting" and stop.`,
-      `- Each item: what happened, and why it matters to him specifically. One or two lines.`,
+      cadence === "daily"
+        // The whole desk has to read in about two minutes across every topic, so
+        // the daily budget per topic is deliberately brutal. Silence is the
+        // correct answer on a quiet day — a digest that manufactures items to
+        // look busy stops being read, and then the desk is worth nothing.
+        ? `- AT MOST TWO items, and only genuinely important ones. Most days a topic has ` +
+          `nothing and the right answer is "nothing worth reporting" — say exactly that and stop.`
+        : `- Three to six items maximum. If nothing real happened, say "nothing worth reporting" and stop.`,
+      cadence === "daily"
+        ? `- ONE LINE per item: what happened, then a dash, then why it matters to him. ` +
+          `Hard limit 200 characters.`
+        : `- Each item: what happened, and why it matters to him specifically. One or two lines.`,
+      `- Start each item with a bullet character and a space. Nothing else.`,
       `- No hype, no funding rounds, no press-release language.`,
       `- Never predict prices or tell him to buy or sell. Facts and consequences only.`,
-      `- Plain text for Telegram. No markdown headers.`,
+      `- Plain text for Telegram. No markdown, no headers, no bold, no asterisks.`,
+      `- He will ask you to expand anything he cares about, so do not pre-explain.`,
     ].join("\n");
 
     try {
       const body = await generate(instruction, "low");
       if (body.trim() && !/nothing worth reporting/i.test(body.slice(0, 120))) {
         await saveFinding(topic.id, body);
-        sections.push(`— ${topic.name} —\n${body.trim()}`);
+        sections.push(`${topic.name.toUpperCase()}\n${body.trim()}`);
       } else {
         await markRun(topic.id);
       }
@@ -59,8 +72,14 @@ export async function runResearch(
     return;
   }
 
-  const header = cadence === "daily" ? "Today's desk" : "This week's desk";
-  const message = `${header}\n\n${sections.join("\n\n")}`;
+  // A blank line between every topic. He reads this on a phone, and a wall of
+  // text does not get read at all.
+  const date = new Date().toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", timeZone: config.timezone,
+  });
+  const header = cadence === "daily" ? `Desk · ${date}` : `Desk · week to ${date}`;
+  const message =
+    `${header}\n\n${sections.join("\n\n\n")}\n\nAsk me about any of these and I'll give you the whole story.`;
 
   // Telegram caps a message at 4096 characters.
   for (let i = 0; i < message.length; i += 3900) {
