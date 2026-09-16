@@ -1,60 +1,89 @@
+import { anthropic, recordUsage } from "./client.js";
 import { config } from "../config.js";
+import { log } from "../log.js";
 
 /**
  * Which model answers this message.
  *
- * Almost nothing he sends needs Opus. "Hey", "remind me at 3", "how much PLA is
- * left" are lookups and a tool call — Haiku does them correctly and costs a
- * fifth as much. Opus earns its price on research, costing, planning and
- * anything where being wrong is expensive.
- *
- * Deliberately a rule and not a router model: a routing call would add latency
- * and another bill to every single message, to decide something a regular
- * expression gets right.
+ * Haiku reads the message and picks. That costs about two hundredths of a cent
+ * and half a second, and it is worth both: the alternative is a regular
+ * expression guessing at intent, which gets "should I buy a third printer"
+ * right and "my father called, he wants to change the dough order and I am not
+ * sure that works with Saturday" wrong. The second one needs judgement and no
+ * pattern will ever see it.
  *
  * $5/$25 vs $2/$10 vs $1/$5 per million. On a normal day this is most of the
- * difference between a ten-dollar month and a hundred-dollar one.
+ * difference between a ten-dollar month and a hundred-dollar one — but the
+ * point is not to be cheap, it is to spend Opus where Opus changes the answer.
  */
 
 export type Tier = "fast" | "mid" | "deep";
 
-/** Anything where being wrong costs real money or real time. */
-const DEEP = new RegExp([
-  "research", "analys", "analyz", "compare", "strategy", "strategi",
-  "should i", "worth it", "why (is|does|did|are)", "explain why",
-  "plan\\b", "plann", "decide", "decision", "trade-?off", "pros and cons",
-  "underpric", "overpric", "margin", "costing", "profit",
-  "net worth", "afford", "invest", "portfolio", "bitcoin", "btc\\b", "market",
-  "write (me )?a", "draft", "design", "architect", "review",
-  "what do you know about me", "everything you know",
-].join("|"), "i");
+const RUBRIC = `Pick which model should answer Steven's message. Reply with ONE word.
 
-/** Conversational noise and one-line lookups. */
-const FAST = new RegExp([
-  "^\\s*(hey|hi|hello|yo|sup|wassup|thanks|thank you|ok|okay|cool|nice|got it|yes|no|sure)\\b",
-  // Any short question DEEP has already declined is a lookup. Requiring the verb
-  // immediately after the question word missed "how much PLA is left", which is
-  // close to the most common thing he asks.
-  "^\\s*(what|when|where|which|who|how much|how many|how long|is|are|do|does|did|can)\\b.{0,70}$",
-  "^\\s*(remind|add|log|record|note|set|cancel|delete|done|complete)\\b",
-  "^\\s*/[a-z]+",
-].join("|"), "i");
+FAST — a greeting, an acknowledgement, or one fact to look up or write down.
+  "hey jarvis" · "how much PLA is left" · "remind me at 3pm to call dad"
+  · "log 40 dollars on filament" · "which printers are running"
 
-export function tierFor(text: string): Tier {
+MID — ordinary work. Several steps, a tool or two, some judgement, but the
+  right answer is not really in doubt.
+  "check the printers and tell me which finishes first" · "put the accounting in
+  my calendar every day until the 23rd" · "my father changed the dough order"
+
+DEEP — being wrong is expensive, or the answer is a judgement he will act on.
+  Money, pricing, margin, what to buy, what to build, research, planning,
+  comparing options, anything about his net worth or the bank project, anything
+  where he is asking what you think rather than what you know.
+  "is the corn clicker underpriced" · "should I buy a third printer" · "what is
+  bitcoin doing" · "how should I structure the L2 agents"
+
+Rules:
+- If he asks what you THINK, whether something WORKS, whether he SHOULD, or if
+  he says he is NOT SURE about something — that is DEEP. He is asking for
+  judgement, not for a fact, and judgement is the whole reason to spend Opus.
+- If the answer commits him to spending money or time, choose DEEP.
+- If it is ambiguous between two, choose the more capable one. Being wrong
+  cheaply is worse than being right for a fraction of a cent.
+- Reply with exactly one word: FAST, MID or DEEP.`;
+
+/** The fallback when the router itself is unavailable. Deliberately cautious. */
+function guess(text: string): Tier {
+  const t = text.trim();
+  if (t.length > 400) return "deep";
+  if (/^\s*(hey|hi|hello|yo|thanks|ok|okay|sure|\/[a-z]+)\b/i.test(t) && t.length < 40) return "fast";
+  return "mid";
+}
+
+export async function tierFor(text: string): Promise<Tier> {
   const t = text.trim();
 
-  // Two requests joined together is not a lookup, however short it is.
-  const compound = /\band\s+(then\s+|also\s+)?(tell|give|check|show|work|find|see)\b|,\s*then\b/i.test(t);
-
   // He can always force it, and saying so should be enough.
-  if (/\b(think hard|deep dive|use opus|take your time|properly)\b/i.test(t)) return "deep";
+  if (/\b(think hard|deep dive|use opus|take your time)\b/i.test(t)) return "deep";
 
-  // Length is the strongest single signal: a paragraph is a briefing, and a
-  // briefing is where getting it wrong actually costs him.
-  if (t.length > 600) return "deep";
-  if (DEEP.test(t)) return "deep";
-  if (!compound && t.length < 90 && FAST.test(t)) return "fast";
-  return "mid";
+  const started = Date.now();
+  try {
+    const res = await anthropic.messages.create({
+      model: config.anthropic.fastModel,
+      max_tokens: 4,
+      system: RUBRIC,
+      messages: [{ role: "user", content: t.slice(0, 1500) }],
+    });
+    await recordUsage("route", config.anthropic.fastModel, res.usage, Date.now() - started);
+
+    const word = res.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim().toUpperCase();
+    const tier: Tier | null =
+      word.startsWith("FAST") ? "fast" : word.startsWith("DEEP") ? "deep" : word.startsWith("MID") ? "mid" : null;
+
+    if (!tier) {
+      log.warn({ word }, "router returned something unexpected");
+      return guess(t);
+    }
+    return tier;
+  } catch (err) {
+    // A router that cannot answer must not stop him being answered.
+    log.warn({ err }, "router failed, falling back");
+    return guess(t);
+  }
 }
 
 export function modelFor(tier: Tier): string {
@@ -65,10 +94,7 @@ export function modelFor(tier: Tier): string {
   }
 }
 
-/**
- * Effort is the second lever after model choice. A lookup does not need the
- * model to deliberate about it, and deliberation is billed.
- */
+/** Effort is the second lever after model choice. Deliberation is billed. */
 export function effortFor(tier: Tier): "low" | "medium" | "high" {
   return tier === "deep" ? "high" : tier === "mid" ? "medium" : "low";
 }

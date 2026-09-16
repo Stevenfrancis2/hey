@@ -113,7 +113,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
 
   // Most of what he sends is a lookup and a tool call. Opus on "how much PLA is
   // left" costs five times what Haiku costs to give the same answer.
-  const tier = tierFor(userText);
+  const tier = await tierFor(userText);
   const model = modelFor(tier);
   const effort = effortFor(tier);
 

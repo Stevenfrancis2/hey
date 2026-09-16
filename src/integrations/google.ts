@@ -250,9 +250,15 @@ export async function createEvent(input: {
   repeat?: "day" | "week" | null;
   until?: Date | null;
 }): Promise<CalEvent> {
-  // Google wants the UNTIL bound as a basic-format UTC timestamp.
-  const until = input.until
-    ? input.until.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")
+  // Google wants the UNTIL bound as a basic-format UTC timestamp, and treats it
+  // as an instant rather than a day. "through Wednesday the 23rd" parses to
+  // midnight on the 23rd, so a 15:00 occurrence that day falls after the bound
+  // and silently disappears — he asked for seven days and got six. Push it to
+  // the end of the day.
+  const untilDate = input.until ? new Date(input.until) : null;
+  if (untilDate) untilDate.setUTCHours(23, 59, 59, 0);
+  const until = untilDate
+    ? untilDate.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")
     : null;
   const recurrence = input.repeat
     ? [`RRULE:FREQ=${input.repeat === "day" ? "DAILY" : "WEEKLY"}${until ? `;UNTIL=${until}` : ""}`]
