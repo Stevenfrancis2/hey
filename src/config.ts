@@ -76,6 +76,7 @@ export const config = {
     apiKey: required("ANTHROPIC_API_KEY"),
     model: optional("ANTHROPIC_MODEL", "claude-opus-5"),
     fastModel: optional("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5"),
+    midModel: optional("ANTHROPIC_MID_MODEL", "claude-sonnet-5"),
   },
 
   voyage: {
