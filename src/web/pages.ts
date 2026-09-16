@@ -315,8 +315,18 @@ export async function chatPage(threadChatId: number): Promise<string> {
     send.disabled=true;send.textContent='…';
     var dots=typing();
 
-    fetch('/chat/send',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:text})})
+    // One silent retry. A deploy restarts the single machine and leaves a few
+    // seconds where nothing answers — he should never see that, and he
+    // certainly should not have to retype a paragraph because of it.
+    function send1(attempt){
+      return fetch('/chat/send',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text:text})})
+        .catch(function(err){
+          if(attempt>=2) throw err;
+          return new Promise(function(r){setTimeout(r,2500);}).then(function(){return send1(attempt+1);});
+        });
+    }
+    send1(1)
       .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
       .then(function(res){
         dots.remove();
