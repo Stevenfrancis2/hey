@@ -64,6 +64,7 @@ export function page(title: string, active: string, body: string): string {
 <meta name="theme-color" content="#101614" media="(prefers-color-scheme:dark)">
 <title>${escapeHtml(title)} · Second Steven</title>
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.png" type="image/png">
 <link rel="apple-touch-icon" href="/icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Sven">
@@ -310,5 +311,9 @@ export const MANIFEST = JSON.stringify({
   display: "standalone",
   background_color: "#101614",
   theme_color: "#101614",
-  icons: [{ src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }],
+  icons: [
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+    { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
+    { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+  ],
 });

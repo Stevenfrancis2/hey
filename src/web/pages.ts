@@ -240,7 +240,8 @@ export async function chatPage(threadChatId: number): Promise<string> {
   <div class="log" id="log">${rendered || '<p class="empty">Nothing yet.</p>'}</div>
   <form class="composer" method="post" action="/chat" id="f">
     <textarea name="text" rows="1" placeholder="Ask it something…" required autofocus></textarea>
-    <button type="button" id="mic" class="mic" title="Hold to talk" aria-label="Record">🎙</button>
+    <button type="button" id="mic" class="mic" title="Tap to talk" aria-label="Record">🎙</button>
+    <button type="button" id="spk" class="mic" title="Read replies aloud" aria-label="Speak">🔈</button>
     <button type="submit">Send</button>
   </form>
 </div>
@@ -261,6 +262,47 @@ export async function chatPage(threadChatId: number): Promise<string> {
 
   // The same microphone the phone has. MediaRecorder needs https, which Fly
   // gives us, and a permission the browser only grants on a real click.
+  // Voice out uses the browser's own speech synthesis: free, instant, offline,
+  // and no per-reply bill. A TTS API would sound better and would also charge
+  // him every time the thing opened its mouth.
+  var spk=document.getElementById('spk');
+  var on=false;
+  try{on=localStorage.getItem('speak')==='1';}catch(e){}
+  function paintSpk(){spk.textContent=on?'🔊':'🔈';spk.title=on?'Replies are read aloud':'Read replies aloud';}
+  function voice(){
+    var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang);});
+    var pick=vs.filter(function(v){return /natural|neural|google|aria|guy|jenny/i.test(v.name);});
+    return (pick[0]||vs[0]||null);
+  }
+  function say(t){
+    if(!window.speechSynthesis||!t)return;
+    speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance(t.slice(0,1200));
+    var v=voice();if(v)u.voice=v;
+    u.rate=1.02;u.pitch=1;
+    speechSynthesis.speak(u);
+  }
+  if(!window.speechSynthesis){spk.style.display='none';}else{
+    paintSpk();
+    spk.addEventListener('click',function(){
+      if(speechSynthesis.speaking){speechSynthesis.cancel();}
+      on=!on;try{localStorage.setItem('speak',on?'1':'0');}catch(e){}
+      paintSpk();
+      if(on)speakLast();
+    });
+  }
+  function speakLast(){
+    var all=log.querySelectorAll('.msg:not(.me) .bubble');
+    var last=all[all.length-1];
+    if(last)say(last.textContent||'');
+  }
+  // Voices load asynchronously in Chrome; without this the first reply is silent.
+  if(window.speechSynthesis){
+    if(speechSynthesis.getVoices().length===0){
+      speechSynthesis.addEventListener('voiceschanged',function(){if(on)speakLast();},{once:true});
+    } else if(on){ setTimeout(speakLast,150); }
+  }
+
   var mic=document.getElementById('mic'),rec=null,chunks=[];
   if(!navigator.mediaDevices||!window.MediaRecorder){mic.style.display='none';}
   function label(t){mic.textContent=t;}

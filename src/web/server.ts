@@ -26,6 +26,7 @@ import {
   connectedAccount, disconnect, redirectUri,
 } from "../integrations/google.js";
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { jarvisAudioBytes } from "../integrations/greeting.js";
 import { coverBytes } from "../integrations/bambu.js";
 import { transcribe } from "../integrations/transcribe.js";
@@ -54,11 +55,10 @@ function redeemGoogleState(state: string | undefined): boolean {
   return expiry > Date.now();
 }
 
-// A flat teal square. Inlined so there is no asset pipeline for one icon.
-const ICON = Buffer.from(
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNgYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
-  "base64",
-);
+// Read from disk rather than inlined: the placeholder was a 1x1 teal pixel,
+// which is invisible on a taskbar and looks broken as an installed app.
+const ICON = await readFile(new URL("../../assets/icon.png", import.meta.url));
+const ICON192 = await readFile(new URL("../../assets/icon-192.png", import.meta.url));
 
 export async function startServer() {
   const app = Fastify({ logger: false, bodyLimit: 8 * 1024 * 1024 });
@@ -79,7 +79,10 @@ export async function startServer() {
 
   app.get("/manifest.webmanifest", async (_req, reply) =>
     reply.type("application/manifest+json").send(MANIFEST));
-  app.get("/icon.png", async (_req, reply) => reply.type("image/png").send(ICON));
+  app.get("/icon.png", async (_req, reply) =>
+    reply.type("image/png").header("cache-control", "public, max-age=86400").send(ICON));
+  app.get("/icon-192.png", async (_req, reply) =>
+    reply.type("image/png").header("cache-control", "public, max-age=86400").send(ICON192));
 
   // ── everything below the console needs a session ─────────
   app.addHook("onRequest", async (request, reply) => {
