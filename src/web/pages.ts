@@ -11,6 +11,7 @@ import { summary as moneySummary, outstanding, affordability, recentEntries, lis
 import { listTopics as listResearchTopics, recentFindings, listCandidates } from "../memory/research.js";
 import { listDecisions, findDecision, listOptions, listAssumptions, payback } from "../memory/decisions.js";
 import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
+import { netWorth } from "../memory/networth.js";
 import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
          products as farmProducts, globals as farmGlobals, priceList } from "../memory/farm.js";
 import { listEvents, connectedAccount } from "../integrations/google.js";
@@ -254,14 +255,41 @@ export async function chatPage(threadChatId: number): Promise<string> {
 
   log.scrollTop=log.scrollHeight;
 
+  // He typed a long message, the page reloaded, and he could not tell whether it
+  // had gone anywhere. The draft is kept until the message is actually visible
+  // in the log, so a failed send, a stray refresh or a closed laptop cannot eat
+  // it. Losing what he typed is the one thing this box must never do.
+  var DRAFT='chatdraft';
+  function lastMine(){
+    var all=log.querySelectorAll('.msg.me .bubble');
+    return all.length?(all[all.length-1].textContent||'').trim():'';
+  }
+  try{
+    var d=localStorage.getItem(DRAFT);
+    if(d){
+      if(d.trim()===lastMine()) localStorage.removeItem(DRAFT);
+      else ta.value=d;
+    }
+  }catch(e){}
+
   function grow(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px';}
-  ta.addEventListener('input',grow);grow();
+  ta.addEventListener('input',function(){
+    grow();
+    try{localStorage.setItem(DRAFT,ta.value);}catch(e){}
+  });
+  grow();
   ta.addEventListener('keydown',function(e){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(ta.value.trim())f.requestSubmit();}
   });
   // A reply can take ten seconds. Without a pending state that looks identical
   // to a dead page, and he presses Send again and it asks twice.
-  f.addEventListener('submit',function(){send.disabled=true;send.textContent='Thinking…';ta.disabled=true;});
+  f.addEventListener('submit',function(e){
+    if(send.disabled){e.preventDefault();return;}
+    send.disabled=true;send.textContent='Thinking…';
+    // Left enabled but read-only: a disabled field is not submitted, which
+    // would post an empty message and lose everything he wrote.
+    ta.readOnly=true;
+  });
 
   function clip(){var a=new Audio('/jarvis.mp3');a.play().catch(function(){});}
   if(location.search.indexOf('jarvis=1')>-1){clip();history.replaceState({},'','/chat');}
@@ -400,24 +428,49 @@ ${m.url ? `<p>${escapeHtml(m.url)}</p>` : ""}</div>`).join("")}` : ""}
 
 
 export async function moneyPage(): Promise<string> {
-  const [all, month, owed, afford, entries, bills] = await Promise.all([
-    moneySummary({}), moneySummary({ days: 30 }), outstanding(),
+  const [n, all, month, owed, afford, entries, bills] = await Promise.all([
+    netWorth(), moneySummary({}), moneySummary({ days: 30 }), outstanding(),
     affordability("USD"), recentEntries(25), listBills(),
   ]);
 
   const owedToHim = owed.filter((o) => o.direction === "in");
   const owedByHim = owed.filter((o) => o.direction === "out");
+  const usd = (v: number) => `$${v.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+  const KINDS: Record<string, string> = {
+    bank: "Bank", cash: "Cash", crypto: "Crypto", stock: "Stocks", other: "Other",
+  };
 
   return page("Money", "/money", `
 <h1>Money</h1>
-<p class="muted">One book per business, one view across all of them. Amounts owed to you are
-shown but never counted as available — it isn't yours until it lands.</p>
 
+<div class="card hero">
+  <div class="row"><h3>Net worth</h3>
+    <span class="tag ok">${usd(n.totalUsd)}</span></div>
+  <p>${n.holdings.length === 0
+      ? `Nothing recorded yet. Tell him what you have — or send a screenshot of your portfolio and he'll read every line off it.`
+      : n.byKind.map((k) => `${KINDS[k.kind] ?? k.kind} ${usd(k.usd)}`).join(" · ")}</p>
+  ${n.other.length ? `<p>Not converted: ${n.other.map((o) =>
+    `${o.currency} ${o.amount.toLocaleString("en-GB")}`).join(" · ")} — no exchange rate worth trusting.</p>` : ""}
+</div>
+
+${n.holdings.length ? `<h2>What you own</h2>
+${n.holdings.map((h) => `<div class="card"><div class="row">
+<h3>${escapeHtml(h.name)}</h3>
+<span class="tag${h.stale ? " due" : ""}">${h.usd != null ? usd(h.usd)
+  : h.amount_minor != null ? money(h.amount_minor, h.currency) : "—"}</span></div>
+<p>${h.symbol && h.quantity != null
+    ? `${Number(h.quantity)} ${escapeHtml(h.symbol.toUpperCase())}${h.price ? ` at ${usd(h.price)}` : " · no live price"}`
+    : escapeHtml(KINDS[h.kind] ?? h.kind)}${
+  h.stale ? " · not updated in over a month" : ""}</p></div>`).join("")}` : ""}
+
+<h2>Cash flow</h2>
+<p class="muted">Money owed to you is shown but never counted as available — it isn't yours
+until it lands.</p>
 <div class="grid">
   <div class="card"><div class="row"><h3>Free to spend</h3>
     <span class="tag${afford.freeMinor < 0 ? " due" : " ok"}">${money(afford.freeMinor)}</span></div>
     <p>cash minus what you owe and monthly bills</p></div>
-  <div class="card"><div class="row"><h3>Cash</h3><span class="tag">${money(afford.cashMinor)}</span></div>
+  <div class="card"><div class="row"><h3>Ledger cash</h3><span class="tag">${money(afford.cashMinor)}</span></div>
     <p>settled, USD</p></div>
   <div class="card"><div class="row"><h3>Owed to you</h3>
     <span class="tag">${money(afford.owedToHimMinor)}</span></div>
@@ -428,7 +481,7 @@ shown but never counted as available — it isn't yours until it lands.</p>
 </div>
 
 <h2>By business</h2>
-${all.length === 0 ? '<p class="empty">Nothing recorded yet. Tell the bot: "sold 3 housings for 450".</p>' : ""}
+${all.length === 0 ? `<p class="empty">Nothing recorded yet. Tell him: "sold 3 housings for 450".</p>` : ""}
 ${all.map((r) => {
   const m = month.find((x) => x.context_key === r.context_key && x.currency === r.currency);
   return `<div class="card"><div class="row">
@@ -451,14 +504,13 @@ ${bills.length ? `<h2>Monthly bills</h2>${bills.map((b) => `
 <p>day ${b.day_of_month}</p></div>`).join("")}` : ""}
 
 <h2>Recent</h2>
-${entries.length === 0 ? '<p class="empty">Nothing yet.</p>' : entries.map((e) => `
+${entries.length === 0 ? `<p class="empty">Nothing yet.</p>` : entries.map((e) => `
 <div class="hit"><time>${new Date(e.occurred_on).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${
   e.context_key ? ` · ${escapeHtml(e.context_key)}` : ""}${e.settled ? "" : " · UNSETTLED"}</time>
 ${e.direction === "in" ? "+" : "−"}${money(e.amount_minor, e.currency).replace("-", "")}${
   e.counterparty ? ` · ${escapeHtml(e.counterparty)}` : ""}${e.note ? ` — ${escapeHtml(e.note)}` : ""}</div>`).join("")}
 `);
 }
-
 
 export async function deskPage(): Promise<string> {
   const [topics, findings, candidates] = await Promise.all([

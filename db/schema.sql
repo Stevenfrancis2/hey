@@ -663,3 +663,26 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value      text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ─────────────────────────────────────────────────────────────
+-- HOLDINGS — what he actually owns, as opposed to what moved
+--
+-- The ledger answers "what happened". This answers "what do I have", which is
+-- the question he actually asks. Fiat is stored in minor units like everything
+-- else; crypto and stocks store a quantity and get priced live, because a
+-- balance he typed in last month is a lie by this month.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS holdings (
+  id           uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind         text NOT NULL,              -- bank|cash|crypto|stock|other
+  name         text NOT NULL,              -- "BLOM account", "cash at home", "Bitcoin"
+  symbol       text,                       -- crypto/stock only: BTC, ETH, NVDA
+  quantity     numeric(24,8),              -- crypto/stock only
+  amount_minor bigint,                     -- fiat only, minor units
+  currency     text NOT NULL DEFAULT 'USD',
+  context_id   uuid REFERENCES contexts(id),
+  note         text,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (kind, name)
+);
+CREATE INDEX IF NOT EXISTS holdings_kind_idx ON holdings (kind);

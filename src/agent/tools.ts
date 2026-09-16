@@ -2,6 +2,7 @@ import { z } from "zod";
 import * as farm from "../memory/farm.js";
 import * as markets from "../integrations/markets.js";
 import * as budget from "../memory/budget.js";
+import * as nw from "../memory/networth.js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
 import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
@@ -1237,6 +1238,69 @@ export const budgetTool = betaZodTool({
   },
 });
 
+export const setHoldingTool = betaZodTool({
+  name: "set_holding",
+  description:
+    "Record or update something Steven owns: a bank balance, cash at home, a crypto position, " +
+    "a stock. Call it once per line when he tells you what he has, including when he sends a " +
+    "screenshot of a portfolio — read every row off it and record each one. " +
+    "For crypto and stocks give the QUANTITY and the symbol, never a dollar value: values are " +
+    "priced live, and a number he typed last month is wrong by this month.",
+  inputSchema: z.object({
+    kind: z.enum(["bank", "cash", "crypto", "stock", "other"]),
+    name: z.string().describe("What he calls it — 'BLOM account', 'cash at home', 'Bitcoin'"),
+    symbol: z.string().optional().describe("Crypto or stock ticker: BTC, ETH, SOL"),
+    quantity: z.number().optional().describe("How many coins or shares. Crypto and stocks only."),
+    amount: z.number().optional().describe("Balance in major units. Bank and cash only."),
+    currency: z.string().optional().describe("Default USD"),
+    note: z.string().optional(),
+  }),
+  run: async (input) => {
+    const h = await nw.upsert(input);
+    const what = h.symbol && h.quantity != null
+      ? `${Number(h.quantity)} ${h.symbol.toUpperCase()}`
+      : money(h.amount_minor ?? 0, h.currency);
+    return `Recorded: ${h.name} — ${what}.`;
+  },
+});
+
+export const netWorthTool = betaZodTool({
+  name: "net_worth",
+  description:
+    "Everything Steven owns and what it is worth right now, with crypto and stocks priced " +
+    "live. Use for 'what am I worth', 'how much do I have', 'what's my net worth', or before " +
+    "any answer about whether he can afford something big.",
+  inputSchema: z.object({}),
+  run: async () => {
+    const n = await nw.netWorth();
+    if (n.holdings.length === 0) {
+      return "He hasn't told me what he owns yet. Ask him for his balances, or he can send a " +
+             "screenshot of his portfolio and I'll read it.";
+    }
+    const m = (v: number) => `$${v.toLocaleString("en-GB", { maximumFractionDigits: 2 })}`;
+    const out = [`Net worth: ${m(n.totalUsd)}`, ``];
+
+    for (const k of n.byKind) out.push(`  ${k.kind.padEnd(7)} ${m(k.usd)}`);
+    if (n.other.length) {
+      out.push(``, `Not converted (no rate worth trusting):`);
+      for (const o of n.other) out.push(`  ${o.currency} ${o.amount.toLocaleString("en-GB")}`);
+    }
+
+    out.push(``, `Holdings:`);
+    for (const h of n.holdings) {
+      const line = h.symbol && h.quantity != null
+        ? `${Number(h.quantity)} ${h.symbol.toUpperCase()}` +
+          (h.price ? ` @ ${m(h.price)} = ${m(h.usd ?? 0)}` : " (no price)")
+        : money(h.amount_minor ?? 0, h.currency);
+      out.push(`  ${h.name}: ${line}${h.stale ? " — not updated in over a month" : ""}`);
+    }
+    if (n.stale.length) {
+      out.push(``, `Worth asking him to confirm: ${n.stale.join(", ")}.`);
+    }
+    return out.join("\n");
+  },
+});
+
 export const clientTools = [
   recallTool,
   createTaskTool,
@@ -1291,6 +1355,8 @@ export const clientTools = [
   priceProductTool,
   marketReadTool,
   budgetTool,
+  setHoldingTool,
+  netWorthTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];
