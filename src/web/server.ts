@@ -11,6 +11,8 @@ import {
   passwordEnabled, checkPassword,
 } from "./auth.js";
 import { MANIFEST } from "./layout.js";
+import { completeById, reopenById, dropById, postponeById, editById,
+         createTask } from "../memory/tasks.js";
 import { setGlobals as setFarmGlobals, saveProduct, deleteProduct, adjustSealed, openSpool,
          setOpenGrams } from "../memory/farm.js";
 import {
@@ -178,7 +180,8 @@ export async function startServer() {
   });
 
   app.get("/", async (_r, reply) => reply.type("text/html").send(await dashboard()));
-  app.get("/tasks", async (_r, reply) => reply.type("text/html").send(await tasksPage()));
+  app.get<{ Querystring: { done?: string } }>("/tasks", async (r, reply) =>
+    reply.type("text/html").send(await tasksPage(r.query.done === "1")));
   app.get("/projects", async (_r, reply) => reply.type("text/html").send(await projectsPage()));
   app.get("/rooms", async (_r, reply) => reply.type("text/html").send(await roomsPage()));
   app.get<{ Params: { key: string } }>("/room/:key", async (request, reply) =>
@@ -191,6 +194,45 @@ export async function startServer() {
   app.get("/watchlist", async (_r, reply) => reply.type("text/html").send(await watchlistPage()));
   app.get<{ Querystring: { q?: string } }>("/search", async (request, reply) =>
     reply.type("text/html").send(await searchPage(request.query.q)));
+  // Tasks are his to tick off. Plain form posts so this works one-handed on a
+  // phone with no JavaScript, and the agent writes to exactly the same rows.
+  app.post<{ Params: { id: string } }>("/tasks/:id/done", async (r, reply) => {
+    await completeById(r.params.id); reply.redirect("/tasks");
+  });
+  app.post<{ Params: { id: string } }>("/tasks/:id/reopen", async (r, reply) => {
+    await reopenById(r.params.id); reply.redirect("/tasks?done=1");
+  });
+  app.post<{ Params: { id: string } }>("/tasks/:id/drop", async (r, reply) => {
+    await dropById(r.params.id); reply.redirect("/tasks");
+  });
+  app.post<{ Params: { id: string }; Body: { days?: string } }>(
+    "/tasks/:id/postpone", async (r, reply) => {
+      await postponeById(r.params.id, Number(r.body.days) || 1); reply.redirect("/tasks");
+    });
+  app.post<{ Params: { id: string }; Body: Record<string, string> }>(
+    "/tasks/:id/edit", async (r, reply) => {
+      const b = r.body;
+      await editById(r.params.id, {
+        title: b.title,
+        detail: b.detail ?? "",
+        // An empty field means "clear the date", not "leave it alone" — he has
+        // to be able to take a deadline off something.
+        dueAt: b.due ? new Date(b.due) : null,
+        contextKey: b.room || null,
+      });
+      reply.redirect("/tasks");
+    });
+  app.post<{ Body: Record<string, string> }>("/tasks", async (r, reply) => {
+    const title = (r.body.title ?? "").trim();
+    if (title) {
+      await createTask({
+        title, detail: null, contextKey: r.body.room || null, priority: 1,
+        dueAt: r.body.due ? new Date(r.body.due) : null,
+      });
+    }
+    reply.redirect("/tasks");
+  });
+
   app.get("/farm", async (_r, reply) => reply.type("text/html").send(await farmPage()));
   app.get("/printers", async (_r, reply) => reply.type("text/html").send(await printersPage()));
   app.get<{ Params: { id: string } }>("/cover/:id", async (request, reply) => {

@@ -82,3 +82,62 @@ export async function snoozeTask(titleFragment: string, until: Date): Promise<Ta
     [titleFragment, until],
   );
 }
+
+// ── Editing from the console ──────────────────────────────
+// The agent matches on a title fragment because he speaks; the console has the
+// id in its hand and should never guess at which task he meant.
+
+export async function completeById(id: string): Promise<void> {
+  await query(
+    `UPDATE tasks SET status = 'done', completed_at = now() WHERE id = $1 AND status <> 'done'`,
+    [id]);
+}
+
+export async function reopenById(id: string): Promise<void> {
+  await query(
+    `UPDATE tasks SET status = 'open', completed_at = NULL WHERE id = $1`, [id]);
+}
+
+export async function dropById(id: string): Promise<void> {
+  await query(`UPDATE tasks SET status = 'dropped' WHERE id = $1`, [id]);
+}
+
+/** Pushes the due date out, and clears any snooze so it reappears. */
+export async function postponeById(id: string, days: number): Promise<void> {
+  await query(
+    `UPDATE tasks
+     SET due_at = coalesce(greatest(due_at, now()), now()) + make_interval(days => $2::int),
+         snoozed_until = NULL
+     WHERE id = $1`,
+    [id, days]);
+}
+
+export async function editById(id: string, input: {
+  title?: string; detail?: string | null; dueAt?: Date | null; priority?: number;
+  contextKey?: string | null;
+}): Promise<void> {
+  await query(
+    `UPDATE tasks SET
+       title      = coalesce(nullif($2, ''), title),
+       detail     = CASE WHEN $3::text IS NULL THEN detail ELSE nullif($3, '') END,
+       due_at     = CASE WHEN $4::text = 'clear' THEN NULL
+                         WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
+                         ELSE due_at END,
+       priority   = coalesce($6::smallint, priority),
+       context_id = coalesce((SELECT id FROM contexts WHERE key = $7), context_id)
+     WHERE id = $1`,
+    [id, input.title ?? "", input.detail ?? null,
+     input.dueAt === null ? "clear" : "", input.dueAt ?? null,
+     input.priority ?? null, input.contextKey ?? null]);
+}
+
+export async function listAll(includeDone = false): Promise<Task[]> {
+  return query<Task>(
+    `SELECT t.*, c.key AS context_key FROM tasks t
+     LEFT JOIN contexts c ON c.id = t.context_id
+     WHERE $1::boolean OR t.status IN ('open','doing')
+     ORDER BY t.status <> 'done',
+              t.due_at IS NULL, t.due_at, t.priority DESC, t.created_at DESC
+     LIMIT 200`,
+    [includeDone]);
+}

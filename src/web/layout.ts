@@ -226,6 +226,33 @@ a.card:hover{text-decoration:none}
   background:linear-gradient(180deg,var(--accent-soft),var(--surface) 70%)}
 .card.hero h3{font-size:1.12rem}
 
+/* Tasks he can actually work. Done, postpone and edit are one tap each — the
+   agent writes to the same rows, so neither way is the "real" one. */
+.task{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;margin-bottom:9px;box-shadow:var(--raise)}
+.task.done{opacity:.55}
+.task.done h3{text-decoration:line-through}
+.task p{margin:4px 0 0;color:var(--ink-2);font-size:.92rem}
+.tbtns{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px;align-items:center}
+.tbtns form{display:contents}
+.tbtns button{margin:0;min-height:36px;padding:0 13px;font-size:.85rem;font-weight:600;
+  border-radius:9px;background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line)}
+.tbtns button:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
+.tbtns button.prim{background:var(--accent);color:var(--bg);border-color:transparent}
+.tbtns button.ghost{background:transparent;border-color:transparent;color:var(--ink-3);padding:0 8px}
+.tbtns button.ghost:hover{color:var(--signal);background:transparent}
+.task .edit{margin-top:11px;display:flex;flex-direction:column;gap:7px;
+  padding-top:11px;border-top:1px solid var(--line)}
+.erow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.erow input,.erow select{flex:1;min-width:130px}
+.erow button{margin:0;min-height:44px;flex:none}
+.newtask{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px;margin-bottom:20px;display:flex;flex-direction:column;gap:8px;
+  box-shadow:var(--raise)}
+input[type=datetime-local]{width:100%;background:var(--surface);color:var(--ink);
+  border:1px solid var(--line-2);border-radius:var(--radius);padding:11px 13px;
+  font:inherit;font-size:16px}
+
 /* config grids: labelled number fields that stay readable on a phone */
 .cfgs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}
 .cfg{display:flex;flex-direction:column;gap:4px}

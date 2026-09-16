@@ -1,7 +1,7 @@
 import { page, escapeHtml, back } from "./layout.js";
 import { passwordEnabled } from "./auth.js";
 import { query } from "../db/index.js";
-import { listTasks } from "../memory/tasks.js";
+import { listTasks, listAll as listAllTasks } from "../memory/tasks.js";
 import { listProjects } from "../memory/projects.js";
 import { listWatchlist } from "../memory/watchlist.js";
 import { listReminders } from "../memory/reminders.js";
@@ -99,21 +99,77 @@ ${reminders.length ? `<h2>Reminders</h2>${reminders.slice(0, 5).map((r) => `
 }
 
 
-export async function tasksPage(): Promise<string> {
-  const tasks = await listTasks();
-  const byRoom = new Map<string, typeof tasks>();
-  for (const t of tasks) {
-    const key = t.context_key ?? "unfiled";
-    byRoom.set(key, [...(byRoom.get(key) ?? []), t]);
-  }
+export async function tasksPage(showDone = false): Promise<string> {
+  const [tasks, rooms] = await Promise.all([
+    listAllTasks(showDone),
+    query<{ key: string }>(`SELECT key FROM contexts WHERE active ORDER BY key`),
+  ]);
+
+  const open = tasks.filter((t) => t.status !== "done" && t.status !== "dropped");
+  const done = tasks.filter((t) => t.status === "done");
+
+  const isoLocal = (d: Date | string | null) =>
+    d ? new Date(new Date(d).getTime() - new Date(d).getTimezoneOffset() * 60000)
+          .toISOString().slice(0, 16)
+      : "";
+
+  const card = (t: (typeof tasks)[number]) => {
+    const overdue = t.due_at && new Date(t.due_at) < new Date() && t.status !== "done";
+    return `<div class="task${t.status === "done" ? " done" : ""}">
+  <div class="row">
+    <h3>${escapeHtml(t.title)}</h3>
+    <span class="tag${overdue ? " due" : t.status === "done" ? " ok" : ""}">${
+      t.status === "done" ? "done" : t.due_at ? daysLeft(t.due_at) : escapeHtml(t.context_key ?? "—")}</span>
+  </div>
+  ${t.detail ? `<p>${escapeHtml(t.detail)}</p>` : ""}
+
+  <div class="tbtns">
+    ${t.status === "done"
+      ? `<form method="post" action="/tasks/${t.id}/reopen"><button>reopen</button></form>`
+      : `<form method="post" action="/tasks/${t.id}/done"><button class="prim">done</button></form>
+         <form method="post" action="/tasks/${t.id}/postpone"><input type="hidden" name="days" value="1"><button>+1d</button></form>
+         <form method="post" action="/tasks/${t.id}/postpone"><input type="hidden" name="days" value="7"><button>+1w</button></form>`}
+    <form method="post" action="/tasks/${t.id}/drop"><button class="ghost">drop</button></form>
+    <button type="button" class="ghost" onclick="this.closest('.task').querySelector('.edit').hidden=!this.closest('.task').querySelector('.edit').hidden">edit</button>
+  </div>
+
+  <form class="edit" hidden method="post" action="/tasks/${t.id}/edit">
+    <input type="text" name="title" value="${escapeHtml(t.title)}" placeholder="Title" required>
+    <input type="text" name="detail" value="${escapeHtml(t.detail ?? "")}" placeholder="Detail">
+    <div class="erow">
+      <input type="datetime-local" name="due" value="${isoLocal(t.due_at)}">
+      <select name="room">
+        <option value="">— room —</option>
+        ${rooms.map((r) => `<option value="${r.key}"${r.key === t.context_key ? " selected" : ""}>${r.key}</option>`).join("")}
+      </select>
+      <button class="prim">save</button>
+    </div>
+  </form>
+</div>`;
+  };
+
   return page("Tasks", "/tasks", `
-<h1>Tasks</h1><p class="muted">${tasks.length} open</p>
-${tasks.length === 0 ? '<p class="empty">Nothing open.</p>' : ""}
-${[...byRoom.entries()].map(([room, items]) => `
-<h2>${escapeHtml(room)}</h2>
-${items.map((t) => `<div class="card"><div class="row"><h3>${escapeHtml(t.title)}</h3>
-${t.due_at ? `<span class="tag${new Date(t.due_at) < new Date() ? " due" : ""}">${daysLeft(t.due_at)}</span>` : ""}</div>
-${t.detail ? `<p>${escapeHtml(t.detail)}</p>` : ""}</div>`).join("")}`).join("")}
+<h1>Tasks</h1>
+<p class="muted">${open.length} open. Tick them off here, or just tell him — both write to the
+same list.</p>
+
+<form method="post" action="/tasks" class="newtask">
+  <input type="text" name="title" placeholder="Add a task…" required>
+  <div class="erow">
+    <input type="datetime-local" name="due">
+    <select name="room"><option value="">— room —</option>
+      ${rooms.map((r) => `<option value="${r.key}">${r.key}</option>`).join("")}</select>
+    <button class="prim">Add</button>
+  </div>
+</form>
+
+${open.length === 0 ? `<p class="empty">Nothing open.</p>` : open.map(card).join("")}
+
+<h2>${showDone ? "Done" : ""}</h2>
+${showDone
+  ? (done.length === 0 ? `<p class="empty">Nothing finished yet.</p>` : done.map(card).join("")) +
+    `<p style="margin-top:14px"><a href="/tasks">Hide finished</a></p>`
+  : `<p style="margin-top:14px"><a href="/tasks?done=1">Show finished</a></p>`}
 `);
 }
 
