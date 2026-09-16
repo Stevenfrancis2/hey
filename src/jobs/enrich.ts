@@ -123,6 +123,20 @@ ${read}` : read;
             : {},
         );
       }
+    } else if (classification) {
+      // A receipt, not a reply. Silence used to mean both "filed perfectly" and
+      // "misread and dropped", and he had no way to tell them apart — he found
+      // out by opening the console and discovering four tasks missing. One line
+      // naming the room and repeating the substance back proves it understood,
+      // and costs nothing: the classifier already produced both.
+      await api
+        .sendMessage(chatId, `${classification.context} · ${classification.summary}`, {
+          disable_notification: true,
+          ...(replyTo
+            ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } }
+            : {}),
+        })
+        .catch((err) => log.warn({ err, captureId }, "receipt failed"));
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
