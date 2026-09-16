@@ -19,6 +19,7 @@ export async function runResearch(
   if (topics.length === 0) return;
 
   const sections: string[] = [];
+  let providerFailures = 0;
 
   for (const topic of topics) {
     const previous = await lastFinding(topic.id);
@@ -63,8 +64,16 @@ export async function runResearch(
       }
     } catch (err) {
       log.error({ err, topic: topic.name }, "research topic failed");
-      if (isProviderError(err)) await notifyOutage(api, chatId, err);
+      if (isProviderError(err)) { providerFailures++; await notifyOutage(api, chatId, err); }
     }
+  }
+
+  // The desk fired at 14:00 into an empty account, every topic failed, and
+  // because the schedule runs once a day that was his news gone until tomorrow.
+  // Throwing hands it back to pg-boss, which retries with backoff — an outage
+  // or an empty balance should cost him an hour, not a day.
+  if (sections.length === 0 && providerFailures > 0) {
+    throw new Error(`desk: all ${providerFailures} topics failed on the provider; retrying`);
   }
 
   if (sections.length === 0) {
