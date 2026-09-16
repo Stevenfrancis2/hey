@@ -262,6 +262,13 @@ export async function chatPage(threadChatId: number): Promise<string> {
 
   // The same microphone the phone has. MediaRecorder needs https, which Fly
   // gives us, and a permission the browser only grants on a real click.
+  // His own Jarvis clip, played here rather than sent as a Telegram voice note.
+  // One-shot: the flag is stripped from the URL so a refresh does not replay it.
+  if(location.search.indexOf('jarvis=1')>-1){
+    var a=new Audio('/jarvis.mp3');a.play().catch(function(){});
+    history.replaceState({},'','/chat');
+  }
+
   // Voice out uses the browser's own speech synthesis: free, instant, offline,
   // and no per-reply bill. A TTS API would sound better and would also charge
   // him every time the thing opened its mouth.
@@ -321,7 +328,10 @@ export async function chatPage(threadChatId: number): Promise<string> {
           fetch('/chat/voice',{method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({audio:b64})})
             .then(function(r){return r.json();})
-            .then(function(){location.reload();})
+            .then(function(d){
+              if(d&&d.jarvis){var a=new Audio('/jarvis.mp3');a.play().catch(function(){});}
+              setTimeout(function(){location.reload();}, d&&d.jarvis?900:0);
+            })
             .catch(function(){label('🎙');mic.disabled=false;alert('Could not send that.');});
         };
         fr.readAsDataURL(blob);

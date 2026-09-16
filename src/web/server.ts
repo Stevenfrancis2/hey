@@ -27,7 +27,7 @@ import {
 } from "../integrations/google.js";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { jarvisAudioBytes } from "../integrations/greeting.js";
+import { jarvisAudioBytes, isGreeting } from "../integrations/greeting.js";
 import { coverBytes } from "../integrations/bambu.js";
 import { transcribe } from "../integrations/transcribe.js";
 
@@ -274,7 +274,7 @@ export async function startServer() {
       const text = (await transcribe(bytes, "console.webm")).trim();
       if (!text) { reply.send({ text: "", reply: "I couldn't make that out." }); return; }
       const answer = await respond(config.telegram.ownerId, text);
-      reply.send({ text, reply: answer });
+      reply.send({ text, reply: answer, jarvis: isGreeting(text) });
     } catch (err) {
       log.error({ err }, "console voice failed");
       reply.code(500).send({ error: "transcription failed" });
@@ -287,7 +287,10 @@ export async function startServer() {
       await respond(config.telegram.ownerId, text).catch((err) =>
         log.error({ err }, "console chat failed"));
     }
-    reply.redirect("/chat");
+    // The greeting clip lives in the Telegram enrichment path, which this route
+    // does not go through — so a greeting typed here got nothing. The flag is
+    // one-shot and the page strips it, so a refresh does not replay it.
+    reply.redirect(isGreeting(text) ? "/chat?jarvis=1" : "/chat");
   });
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
