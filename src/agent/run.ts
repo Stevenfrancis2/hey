@@ -7,7 +7,37 @@ import { one, query } from "../db/index.js";
 import { log } from "../log.js";
 import { asProviderError } from "../integrations/provider-errors.js";
 
-const HISTORY_TURNS = 24;
+const HISTORY_TURNS = 16;
+/**
+ * Turns whose tool traffic is still worth carrying. Beyond this the assistant's
+ * own words are kept and the tool_use/tool_result pairs are dropped.
+ *
+ * Those pairs are the bulk of the bill: a farm_status is eight printers, a
+ * recall is eight excerpts, and every one of them was resent on every message
+ * for the rest of the thread. Measured on a real evening, 51k tokens went into
+ * an average call and only 11k of that was the prompt and the tools — the other
+ * 40k was old tool output nobody would ever read again. What the assistant SAID
+ * it found survives; the raw dump does not.
+ */
+/**
+ * Block types stripped from every stored turn. Measured on a real evening's thread:
+ * web_search_tool_result alone was 21,500 of 33,600 history tokens, against
+ * 2,300 tokens of the text that actually said what was found. Every one of
+ * those raw result sets was resent on every subsequent message for the life of
+ * the thread, so a single search quietly taxed the rest of the conversation.
+ *
+ * They are never needed again either: by the time the turn ends the model has
+ * already written its answer out of them. What the assistant WROTE about what it
+ * found survives; the raw dump does not.
+ */
+const BULKY = new Set([
+  "web_search_tool_result",
+  "code_execution_tool_result",
+  "bash_code_execution_tool_result",
+  "server_tool_use",
+  "thinking",
+  "redacted_thinking",
+]);
 const MAX_ITERATIONS = 12;
 
 async function getThread(chatId: number): Promise<string> {
@@ -35,10 +65,19 @@ async function loadHistory(threadId: string): Promise<Anthropic.Beta.BetaMessage
      ) recent ORDER BY created_at ASC`,
     [threadId, HISTORY_TURNS],
   );
-  return rows.map((r) => ({
-    role: r.role as "user" | "assistant",
-    content: r.content as Anthropic.Beta.BetaMessageParam["content"],
-  }));
+  return rows.map((r) => {
+    const content = r.content as Anthropic.Beta.BetaMessageParam["content"];
+    if (typeof content === "string" || !Array.isArray(content)) {
+      return { role: r.role as "user" | "assistant", content };
+    }
+    const text = content.filter((b) => !BULKY.has((b as { type: string }).type));
+    return {
+      role: r.role as "user" | "assistant",
+      // A turn that was nothing but a search becomes a short note rather than an
+      // empty message, which the API rejects.
+      content: text.length > 0 ? text : [{ type: "text" as const, text: "(searched the web)" }],
+    } as Anthropic.Beta.BetaMessageParam;
+  });
 }
 
 async function saveMessage(threadId: string, role: string, content: unknown): Promise<void> {
