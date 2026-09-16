@@ -5,7 +5,7 @@ import { buildSystem } from "./prompt.js";
 import { config } from "../config.js";
 import { one, query } from "../db/index.js";
 import { log } from "../log.js";
-import { tierFor, modelFor, effortFor, tuningFor, isFast } from "./route.js";
+import { tierFor, modelFor, effortFor, tuningFor, isFast, type Tier } from "./route.js";
 import { asProviderError } from "../integrations/provider-errors.js";
 
 const HISTORY_TURNS = 16;
@@ -204,17 +204,29 @@ export async function respond(chatId: number, userText: string): Promise<string>
 }
 
 /** A one-shot generation with no history and no persistence — used by the briefs. */
-export async function generate(instruction: string, effort: "low" | "high" = "high"): Promise<string> {
+/**
+ * The scheduled jobs: the desk, the brief, the weekly review, the scout.
+ *
+ * `tier` decides the model, because these are the only calls he does not make
+ * himself and they run whether he reads them or not. Eleven desk topics on Opus
+ * came to $1.55 a day — $46 a month, more than everything he actually types.
+ * Reading a news page and summarising two lines is not Opus work.
+ */
+export async function generate(
+  instruction: string,
+  effort: "low" | "high" = "high",
+  tier: Tier = "deep",
+): Promise<string> {
   const started = Date.now();
   const system = await buildSystem();
+  const model = modelFor(tier);
   const runner = anthropic.beta.messages.toolRunner({
-    model: config.anthropic.model,
+    model,
     max_tokens: 8192,
     system,
     messages: [{ role: "user", content: instruction }],
-    tools: allTools,
-    thinking: { type: "adaptive" },
-    output_config: { effort },
+    tools: isFast(model) ? clientTools : allTools,
+    ...tuningFor(model, effort),
     max_iterations: MAX_ITERATIONS,
   });
 
@@ -241,7 +253,7 @@ export async function generate(instruction: string, effort: "low" | "high" = "hi
 
   await recordUsage(
     "brief",
-    config.anthropic.model,
+    model,
     {
       input_tokens: tokensIn,
       output_tokens: tokensOut,

@@ -55,7 +55,11 @@ export async function runResearch(
     ].join("\n");
 
     try {
-      const body = await generate(instruction, "low");
+      // Reading a few pages and writing two lines is Sonnet work. On Opus the
+      // eleven daily topics came to $1.55 a day — more than everything he
+      // actually types. The weekly digest keeps the better model, because it is
+      // once a week and it is the one he reads properly.
+      const body = await generate(instruction, "low", cadence === "daily" ? "mid" : "deep");
       if (body.trim() && !/nothing worth reporting/i.test(body.slice(0, 120))) {
         await saveFinding(topic.id, body);
         sections.push(`${topic.name.toUpperCase()}\n${body.trim()}`);
