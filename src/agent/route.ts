@@ -98,3 +98,17 @@ export function modelFor(tier: Tier): string {
 export function effortFor(tier: Tier): "low" | "medium" | "high" {
   return tier === "deep" ? "high" : tier === "mid" ? "medium" : "low";
 }
+
+/**
+ * Haiku 4.5 supports neither adaptive thinking nor output_config.effort — both
+ * are 400s, not warnings. Sending them anyway broke every fast-tier message the
+ * moment routing went live, and because a 400 is not a credit or auth failure it
+ * reached him as "Anthropic is down". It was not. It was this.
+ */
+export function tuningFor(model: string, effort: "low" | "medium" | "high"): {
+  thinking?: { type: "adaptive" };
+  output_config?: { effort: "low" | "medium" | "high" };
+} {
+  if (model.startsWith("claude-haiku")) return {};
+  return { thinking: { type: "adaptive" }, output_config: { effort } };
+}

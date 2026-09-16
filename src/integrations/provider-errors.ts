@@ -5,9 +5,11 @@ export type Provider = "anthropic" | "voyage" | "groq";
 
 /**
  * `credit` and `auth` need him to go and do something; `rate_limit` and
- * `unavailable` fix themselves. The distinction decides whether he is told.
+ * `unavailable` fix themselves. `bad_request` is a bug in here — telling him the
+ * provider is down when the fault is ours sends him to check a status page over
+ * a line of our own code. The distinction decides what he is told.
  */
-export type OutageKind = "credit" | "auth" | "rate_limit" | "unavailable";
+export type OutageKind = "credit" | "auth" | "rate_limit" | "unavailable" | "bad_request";
 
 const WHERE_TO_TOP_UP: Record<Provider, string> = {
   anthropic: "console.anthropic.com/settings/billing",
@@ -55,6 +57,9 @@ export class ProviderError extends Error {
         return `${name} is rate limiting me. ${consequence}\n\nThis clears on its own — I'll retry.`;
       case "unavailable":
         return `${name} is down or unreachable. ${consequence}\n\nI'll retry.`;
+      case "bad_request":
+        return `I sent ${name} something it rejected. That's a bug in me — not an outage, ` +
+          `not your credit.\n\n${consequence}\n\nI'll retry, and it's worth mentioning.`;
     }
   }
 }
@@ -100,6 +105,11 @@ function kindFor(status: number, body: string): OutageKind {
   if (has(body, CREDIT_SIGNALS)) return "credit";
   if (status === 429 || has(body, RATE_LIMIT_SIGNALS)) return "rate_limit";
   if (status >= 500) return "unavailable";
+
+  // A 400 is us sending something the model does not accept — a parameter the
+  // tier does not support, a malformed request. Calling that "the provider is
+  // down" sent him to check Anthropic's status page over a bug in this repo.
+  if (status === 400) return "bad_request";
   return "unavailable";
 }
 

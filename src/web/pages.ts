@@ -1,4 +1,5 @@
 import { page, escapeHtml, back } from "./layout.js";
+import { passwordEnabled } from "./auth.js";
 import { query } from "../db/index.js";
 import { listTasks } from "../memory/tasks.js";
 import { listProjects } from "../memory/projects.js";
@@ -417,7 +418,15 @@ export async function chatPage(threadChatId: number): Promise<string> {
 `);
 }
 
-export function loginPage(message: string, withPassword = false): string {
+/**
+ * The password form defaults ON wherever one is configured. It used to default
+ * off and be switched on per call site, so the one path that mattered — the
+ * guard that catches every unauthenticated request — rendered a page that only
+ * offered a Telegram link. On iOS that link is unusable: Telegram opens it in
+ * its own browser with its own cookie jar, so the session never reaches Safari
+ * or the home-screen app. He was locked out of his own console by a default.
+ */
+export function loginPage(message: string, withPassword = passwordEnabled()): string {
   return page("Sign in", "", `
 <h1>Sign in</h1>
 <div class="flash">${escapeHtml(message)}</div>

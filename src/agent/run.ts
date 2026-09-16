@@ -5,7 +5,7 @@ import { buildSystem } from "./prompt.js";
 import { config } from "../config.js";
 import { one, query } from "../db/index.js";
 import { log } from "../log.js";
-import { tierFor, modelFor, effortFor } from "./route.js";
+import { tierFor, modelFor, effortFor, tuningFor } from "./route.js";
 import { asProviderError } from "../integrations/provider-errors.js";
 
 const HISTORY_TURNS = 16;
@@ -124,8 +124,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
     system,
     messages,
     tools: allTools,
-    thinking: { type: "adaptive" },
-    output_config: { effort },
+    ...tuningFor(model, effort),
     max_iterations: MAX_ITERATIONS,
   });
 
