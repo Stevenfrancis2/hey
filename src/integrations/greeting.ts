@@ -1,6 +1,7 @@
 import type { Api } from "grammy";
 import { InputFile } from "grammy";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { query, one } from "../db/index.js";
 import { log } from "../log.js";
 
@@ -13,6 +14,9 @@ import { log } from "../log.js";
  */
 
 const FILE = new URL("../../assets/jarvis.mp3", import.meta.url);
+// grammY's InputFile treats a URL as something to fetch over the network, and a
+// file:// URL is "not an absolute URL" to it. It wants a filesystem path.
+const PATH = fileURLToPath(FILE);
 const KEY = "jarvis_voice_file_id";
 
 /**
@@ -35,7 +39,7 @@ async function cachedFileId(): Promise<string | null> {
 export async function sendJarvisVoice(api: Api, chatId: number): Promise<void> {
   try {
     const cached = await cachedFileId();
-    const sent = await api.sendVoice(chatId, cached ?? new InputFile(FILE));
+    const sent = await api.sendVoice(chatId, cached ?? new InputFile(PATH));
 
     // Only the first send produces a new file_id worth keeping.
     const id = sent.voice?.file_id;

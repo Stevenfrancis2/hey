@@ -1,11 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, recordUsage } from "./client.js";
-import { allTools } from "./tools.js";
+import { allTools, clientTools } from "./tools.js";
 import { buildSystem } from "./prompt.js";
 import { config } from "../config.js";
 import { one, query } from "../db/index.js";
 import { log } from "../log.js";
-import { tierFor, modelFor, effortFor, tuningFor } from "./route.js";
+import { tierFor, modelFor, effortFor, tuningFor, isFast } from "./route.js";
 import { asProviderError } from "../integrations/provider-errors.js";
 
 const HISTORY_TURNS = 16;
@@ -123,7 +123,10 @@ export async function respond(chatId: number, userText: string): Promise<string>
     max_tokens: 8192,
     system,
     messages,
-    tools: allTools,
+    // Haiku cannot take the hosted web_search tool — it declares allowed_callers
+    // that need programmatic tool calling, which Haiku does not do. No loss: the
+    // fast tier is greetings and lookups in his own data, never research.
+    tools: isFast(model) ? clientTools : allTools,
     ...tuningFor(model, effort),
     max_iterations: MAX_ITERATIONS,
   });

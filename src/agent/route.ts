@@ -100,11 +100,17 @@ export function effortFor(tier: Tier): "low" | "medium" | "high" {
 }
 
 /**
- * Haiku 4.5 supports neither adaptive thinking nor output_config.effort — both
- * are 400s, not warnings. Sending them anyway broke every fast-tier message the
+ * Haiku 4.5 supports neither adaptive thinking nor output_config.effort, and
+ * cannot take the hosted web_search tool at all — it does not do programmatic
+ * tool calling, and web_search declares allowed_callers that require it. All
+ * three are 400s, not warnings. Sending them anyway broke every fast-tier message the
  * moment routing went live, and because a 400 is not a credit or auth failure it
  * reached him as "Anthropic is down". It was not. It was this.
  */
+export function isFast(model: string): boolean {
+  return model.startsWith("claude-haiku");
+}
+
 export function tuningFor(model: string, effort: "low" | "medium" | "high"): {
   thinking?: { type: "adaptive" };
   output_config?: { effort: "low" | "medium" | "high" };
