@@ -6,7 +6,8 @@ import * as nw from "../memory/networth.js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
 import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
-import { createReminder, listReminders, cancelReminder } from "../memory/reminders.js";
+import { createReminder, createRepeating, listReminders, cancelReminder,
+         cancelAllMatching } from "../memory/reminders.js";
 import { createProject, listProjects, updateProject } from "../memory/projects.js";
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
@@ -132,11 +133,26 @@ export const setReminderTool = betaZodTool({
   inputSchema: z.object({
     text: z.string().describe("What to say to him when it fires"),
     fire_at: z.string().describe("Absolute ISO 8601 datetime with timezone offset"),
+    repeat: z.enum(["day", "week"]).optional()
+      .describe("Set this for anything recurring. ONE call covers the whole run."),
+    until: z.string().optional()
+      .describe("ISO date the repetition stops on. Required with repeat."),
   }),
-  run: async ({ text, fire_at }) => {
+  run: async ({ text, fire_at, repeat, until }) => {
     const when = new Date(fire_at);
     if (Number.isNaN(when.getTime())) return `"${fire_at}" is not a valid datetime.`;
     if (when.getTime() < Date.now() - 60_000) return `${fire_at} is in the past.`;
+
+    if (repeat) {
+      if (!until) return `A repeating reminder needs an "until" date.`;
+      const end = new Date(until);
+      if (Number.isNaN(end.getTime())) return `"${until}" is not a valid date.`;
+      const made = await createRepeating(text, when, repeat, end);
+      if (made.length === 0) return `That range produced no reminders — check the dates.`;
+      return `${made.length} reminders set, every ${repeat} from ${formatDate(made[0]!.fire_at)} ` +
+             `to ${formatDate(made[made.length - 1]!.fire_at)}: "${text}".`;
+    }
+
     const reminder = await createReminder(text, when);
     return `Reminder set for ${formatDate(reminder.fire_at)}: "${reminder.text}".`;
   },
@@ -328,6 +344,9 @@ export const createEventTool = betaZodTool({
     end: z.string().describe("Absolute ISO 8601 with offset"),
     description: z.string().optional(),
     location: z.string().optional(),
+    repeat: z.enum(["day", "week"]).optional()
+      .describe("For anything recurring. ONE call covers the whole run."),
+    until: z.string().optional().describe("ISO date the repetition stops on."),
   }),
   run: async (input) => {
     const problem = await requireGoogle();
@@ -340,6 +359,8 @@ export const createEventTool = betaZodTool({
       const event = await createEvent({
         summary: input.summary, start, end,
         description: input.description ?? null, location: input.location ?? null,
+        repeat: input.repeat ?? null,
+        until: input.until ? new Date(input.until) : null,
       });
       return `Created "${event.summary}" ${whenLocal(start)}–${whenLocal(end).slice(-5)}.`;
     } catch (err) {

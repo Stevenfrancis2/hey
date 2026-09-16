@@ -746,9 +746,13 @@ export async function calendarPage(): Promise<string> {
     days.set(key, [...(days.get(key) ?? []), e]);
   }
 
+  // Start and end. A dough block is 10:00-12:00, and showing only "10:00" makes
+  // a two-hour commitment look like a moment.
+  const hhmm = (d: string) =>
+    new Date(d).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
   const clock = (e: (typeof events)[number]) =>
     e.start.dateTime
-      ? new Date(e.start.dateTime).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+      ? hhmm(e.start.dateTime) + (e.end?.dateTime ? `–${hhmm(e.end.dateTime)}` : "")
       : "all day";
 
   return page("Calendar", "/calendar", `

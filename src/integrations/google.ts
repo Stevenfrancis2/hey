@@ -246,7 +246,18 @@ export async function listEvents(opts: { from?: Date; to?: Date; limit?: number 
 
 export async function createEvent(input: {
   summary: string; start: Date; end: Date; description?: string | null; location?: string | null;
+  /** Repeat natively in Google, so one event covers the whole run. */
+  repeat?: "day" | "week" | null;
+  until?: Date | null;
 }): Promise<CalEvent> {
+  // Google wants the UNTIL bound as a basic-format UTC timestamp.
+  const until = input.until
+    ? input.until.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")
+    : null;
+  const recurrence = input.repeat
+    ? [`RRULE:FREQ=${input.repeat === "day" ? "DAILY" : "WEEKLY"}${until ? `;UNTIL=${until}` : ""}`]
+    : undefined;
+
   return api<CalEvent>(`${CALENDAR}/calendars/primary/events`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -256,8 +267,20 @@ export async function createEvent(input: {
       location: input.location ?? undefined,
       start: { dateTime: input.start.toISOString(), timeZone: config.timezone },
       end: { dateTime: input.end.toISOString(), timeZone: config.timezone },
+      recurrence,
     }),
   });
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  const token = await accessToken();
+  const res = await fetch(`${CALENDAR}/calendars/primary/events/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 404 && res.status !== 410) {
+    throw new Error(`Calendar delete ${res.status}`);
+  }
 }
 
 /**

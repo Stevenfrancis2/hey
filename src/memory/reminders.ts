@@ -12,6 +12,42 @@ export async function createReminder(text: string, fireAt: Date): Promise<Remind
   return row;
 }
 
+/**
+ * A repeating reminder, expanded into one row per occurrence at creation time.
+ *
+ * Not an rrule evaluated at fire time, deliberately: rows he can see, count and
+ * cancel individually beat a rule he cannot inspect. It also means one tool call
+ * covers "every day until next Wednesday" — before this, eight days meant eight
+ * separate calls, which is how the agent ran out of room and started describing
+ * work instead of doing it.
+ */
+export async function createRepeating(
+  text: string,
+  first: Date,
+  every: "day" | "week",
+  until: Date,
+): Promise<Reminder[]> {
+  const out: Reminder[] = [];
+  const step = every === "day" ? 1 : 7;
+  const cap = every === "day" ? 90 : 52;
+
+  for (let i = 0, at = new Date(first); i < cap && at <= until; i++) {
+    if (at.getTime() > Date.now() - 60_000) out.push(await createReminder(text, new Date(at)));
+    at = new Date(at.getTime() + step * 864e5);
+  }
+  return out;
+}
+
+/** Cancels every scheduled reminder whose text matches, not just the first. */
+export async function cancelAllMatching(fragment: string): Promise<number> {
+  const rows = await query<{ id: string }>(
+    `UPDATE reminders SET status = 'cancelled'
+     WHERE status = 'scheduled' AND text ILIKE '%' || $1 || '%' RETURNING id`,
+    [fragment],
+  );
+  return rows.length;
+}
+
 export async function listReminders(): Promise<Reminder[]> {
   return query<Reminder>(
     `SELECT id, text, fire_at, status FROM reminders
