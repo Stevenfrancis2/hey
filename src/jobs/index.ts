@@ -113,7 +113,12 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(TICK_QUEUE, "* * * * *", {}, tz);
   await instance.schedule(MORNING_QUEUE, "0 10 * * *", {}, tz);       // as he wakes
   await instance.schedule(WEEKLY_QUEUE, "0 11 * * 0", {}, tz);        // Sunday, off shift
-  await instance.schedule(ARCHIVE_QUEUE, "30 9 * * *", {}, tz);       // waiting for him, not a 03:00 notification
+  // Sunday, not nightly. The archive is an escape hatch — proof nothing is
+  // trapped if the server dies — and it is worth having. Thirteen megabytes of
+  // markdown and JSON arriving every morning is not a safety net, it is noise,
+  // and noise is how the useful messages stop being read. /export still gives
+  // it to him the moment he wants it.
+  await instance.schedule(ARCHIVE_QUEUE, "0 11 * * 0", {}, tz);
   await instance.schedule(SWEEP_QUEUE, "*/10 * * * *", {}, tz);
   // The desk is the one real cost driver, so it runs once a day, not hourly.
   await instance.schedule(DESK_DAILY_QUEUE, "0 14 * * *", {}, tz);    // mid own-business block
