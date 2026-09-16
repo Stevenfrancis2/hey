@@ -240,19 +240,30 @@ button.ghost:hover{color:var(--signal);filter:none}
   box-shadow:var(--raise)}
 .msg.me .bubble{background:var(--accent-soft);
   border-color:color-mix(in srgb,var(--accent) 26%,transparent)}
-/* chat: history scrolls, composer stays put, newest at the bottom like every
-   other chat he uses. The alternative is typing at the top and reading down. */
-.chat{display:flex;flex-direction:column;gap:0;height:calc(100dvh - 190px);min-height:340px}
-.log{flex:1;overflow-y:auto;padding:4px 2px 14px;overscroll-behavior:contain}
-.composer{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--line);
-  padding:12px 0 calc(12px + env(safe-area-inset-bottom));display:flex;gap:9px;align-items:flex-end}
-.composer textarea{flex:1;max-height:160px;min-height:48px;margin:0}
-.composer button{margin:0;flex:none}
-.composer .mic{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line);
-  font-size:1.15rem;padding:0 14px;line-height:1}
-.composer .mic:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
-.composer .mic[disabled]{opacity:.5}
-.composer button[disabled]{opacity:.55;cursor:progress}
+/* Chat. The composer is a stacked block — full-width input, controls beneath —
+   because a row of buttons beside the textarea squeezes the thing he actually
+   types into down to nothing on a phone. */
+.chat{display:flex;flex-direction:column;height:calc(100dvh - 120px);min-height:380px;
+  max-width:760px}
+.log{flex:1;overflow-y:auto;padding:6px 2px 16px;overscroll-behavior:contain}
+.composer{position:sticky;bottom:0;background:var(--bg);padding:10px 0 calc(12px + env(safe-area-inset-bottom));
+  display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line)}
+.composer textarea{margin:0;min-height:52px;max-height:220px;line-height:1.5;
+  border-radius:14px;padding:14px 16px}
+.tools{display:flex;align-items:center;gap:8px}
+.tools .grow{flex:1}
+.tools button{margin:0;min-height:42px}
+.tools .icon{background:var(--surface-2);color:var(--ink-2);border:1px solid var(--line);
+  font-size:1.1rem;padding:0 15px;line-height:1;border-radius:11px}
+.tools .icon:hover{background:var(--accent-soft);color:var(--accent-ink);filter:none}
+.tools .icon.active{background:var(--accent-soft);color:var(--accent-ink);
+  border-color:color-mix(in srgb,var(--accent) 40%,transparent)}
+.tools .icon.rec{background:var(--signal-soft);color:var(--signal);
+  border-color:var(--signal);animation:pulse 1.4s ease-in-out infinite}
+.tools .icon[disabled]{opacity:.5}
+.tools #send{padding:0 26px;border-radius:11px}
+.tools #send[disabled]{opacity:.6;cursor:progress}
+@keyframes pulse{50%{opacity:.55}}
 .msg:last-child{margin-bottom:0}
 .flash{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-ink);
   border-radius:var(--radius);padding:12px 15px;margin-bottom:18px;font-size:.93rem}

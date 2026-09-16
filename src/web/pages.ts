@@ -217,7 +217,7 @@ export async function chatPage(threadChatId: number): Promise<string> {
   const msgs = await query<{ role: string; content: unknown; created_at: Date }>(
     `SELECT m.role, m.content, m.created_at FROM messages m
      JOIN threads t ON t.id = m.thread_id WHERE t.chat_id = $1
-     ORDER BY m.created_at DESC LIMIT 30`, [threadChatId],
+     ORDER BY m.created_at DESC LIMIT 40`, [threadChatId],
   );
 
   const rendered = msgs.reverse().map((m) => {
@@ -229,90 +229,76 @@ export async function chatPage(threadChatId: number): Promise<string> {
     }
     if (!text.trim()) return "";
     return `<div class="msg ${m.role === "user" ? "me" : ""}">
-<span class="who">${m.role === "user" ? "You" : "Sven"} · ${when(m.created_at)}</span>
+<span class="who">${m.role === "user" ? "You" : "Jarvis"} · ${when(m.created_at)}</span>
 <div class="bubble">${escapeHtml(text)}</div></div>`;
   }).join("");
 
-  return page("Ask", "/chat", `
-<h1>Ask</h1>
-<p class="muted">Same brain as Telegram, same conversation — whichever device you're on.</p>
+  return page("Chat", "/chat", `
 <div class="chat">
-  <div class="log" id="log">${rendered || '<p class="empty">Nothing yet.</p>'}</div>
+  <div class="log" id="log">${rendered || `<p class="empty">Say something.</p>`}</div>
   <form class="composer" method="post" action="/chat" id="f">
-    <textarea name="text" rows="1" placeholder="Ask it something…" required autofocus></textarea>
-    <button type="button" id="mic" class="mic" title="Tap to talk" aria-label="Record">🎙</button>
-    <button type="button" id="spk" class="mic" title="Read replies aloud" aria-label="Speak">🔈</button>
-    <button type="submit">Send</button>
+    <textarea name="text" id="ta" rows="1" placeholder="Ask anything…" required autofocus></textarea>
+    <div class="tools">
+      <button type="button" id="mic" class="icon" title="Tap to talk" aria-label="Record">🎙</button>
+      <button type="button" id="spk" class="icon" title="Read replies aloud" aria-label="Speak">🔈</button>
+      <span class="grow"></span>
+      <button type="submit" id="send">Send</button>
+    </div>
   </form>
 </div>
 <script>
-// The only JavaScript in the console, and it earns its place: a reply can take
-// ten seconds, and without a pending state he presses Send again and the
-// question gets asked twice.
 (function(){
   var log=document.getElementById('log'),f=document.getElementById('f');
-  var ta=f.querySelector('textarea'),b=f.querySelector('button');
+  var ta=document.getElementById('ta'),send=document.getElementById('send');
+  var mic=document.getElementById('mic'),spk=document.getElementById('spk');
+
   log.scrollTop=log.scrollHeight;
-  function grow(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px';}
+
+  function grow(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,220)+'px';}
   ta.addEventListener('input',grow);grow();
   ta.addEventListener('keydown',function(e){
     if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();if(ta.value.trim())f.requestSubmit();}
   });
-  f.addEventListener('submit',function(){b.disabled=true;b.textContent='Thinking…';});
+  // A reply can take ten seconds. Without a pending state that looks identical
+  // to a dead page, and he presses Send again and it asks twice.
+  f.addEventListener('submit',function(){send.disabled=true;send.textContent='Thinking…';ta.disabled=true;});
 
-  // The same microphone the phone has. MediaRecorder needs https, which Fly
-  // gives us, and a permission the browser only grants on a real click.
-  // His own Jarvis clip, played here rather than sent as a Telegram voice note.
-  // One-shot: the flag is stripped from the URL so a refresh does not replay it.
-  if(location.search.indexOf('jarvis=1')>-1){
-    var a=new Audio('/jarvis.mp3');a.play().catch(function(){});
-    history.replaceState({},'','/chat');
-  }
+  function clip(){var a=new Audio('/jarvis.mp3');a.play().catch(function(){});}
+  if(location.search.indexOf('jarvis=1')>-1){clip();history.replaceState({},'','/chat');}
 
-  // Voice out uses the browser's own speech synthesis: free, instant, offline,
-  // and no per-reply bill. A TTS API would sound better and would also charge
-  // him every time the thing opened its mouth.
-  var spk=document.getElementById('spk');
-  var on=false;
-  try{on=localStorage.getItem('speak')==='1';}catch(e){}
-  function paintSpk(){spk.textContent=on?'🔊':'🔈';spk.title=on?'Replies are read aloud':'Read replies aloud';}
-  function voice(){
+  // Voice out is the browser's own synthesis: free, instant, offline, and it
+  // does not bill him every time the thing opens its mouth.
+  var on=false;try{on=localStorage.getItem('speak')==='1';}catch(e){}
+  function paint(){spk.textContent=on?'🔊':'🔈';spk.classList.toggle('active',on);}
+  function pickVoice(){
     var vs=speechSynthesis.getVoices().filter(function(v){return /^en/i.test(v.lang);});
-    var pick=vs.filter(function(v){return /natural|neural|google|aria|guy|jenny/i.test(v.name);});
-    return (pick[0]||vs[0]||null);
-  }
-  function say(t){
-    if(!window.speechSynthesis||!t)return;
-    speechSynthesis.cancel();
-    var u=new SpeechSynthesisUtterance(t.slice(0,1200));
-    var v=voice();if(v)u.voice=v;
-    u.rate=1.02;u.pitch=1;
-    speechSynthesis.speak(u);
-  }
-  if(!window.speechSynthesis){spk.style.display='none';}else{
-    paintSpk();
-    spk.addEventListener('click',function(){
-      if(speechSynthesis.speaking){speechSynthesis.cancel();}
-      on=!on;try{localStorage.setItem('speak',on?'1':'0');}catch(e){}
-      paintSpk();
-      if(on)speakLast();
-    });
+    var good=vs.filter(function(v){return /natural|neural|google|aria|jenny|guy/i.test(v.name);});
+    return good[0]||vs[0]||null;
   }
   function speakLast(){
     var all=log.querySelectorAll('.msg:not(.me) .bubble');
-    var last=all[all.length-1];
-    if(last)say(last.textContent||'');
+    var last=all[all.length-1];if(!last)return;
+    speechSynthesis.cancel();
+    var u=new SpeechSynthesisUtterance((last.textContent||'').slice(0,1500));
+    var v=pickVoice();if(v)u.voice=v;u.rate=1.02;
+    speechSynthesis.speak(u);
   }
-  // Voices load asynchronously in Chrome; without this the first reply is silent.
-  if(window.speechSynthesis){
-    if(speechSynthesis.getVoices().length===0){
-      speechSynthesis.addEventListener('voiceschanged',function(){if(on)speakLast();},{once:true});
-    } else if(on){ setTimeout(speakLast,150); }
+  if(!window.speechSynthesis){spk.style.display='none';}else{
+    paint();
+    spk.addEventListener('click',function(){
+      if(speechSynthesis.speaking){speechSynthesis.cancel();}
+      on=!on;try{localStorage.setItem('speak',on?'1':'0');}catch(e){}
+      paint();if(on)speakLast();
+    });
+    if(on){
+      if(speechSynthesis.getVoices().length===0){
+        speechSynthesis.addEventListener('voiceschanged',speakLast,{once:true});
+      } else { setTimeout(speakLast,150); }
+    }
   }
 
-  var mic=document.getElementById('mic'),rec=null,chunks=[];
+  var rec=null,chunks=[];
   if(!navigator.mediaDevices||!window.MediaRecorder){mic.style.display='none';}
-  function label(t){mic.textContent=t;}
   mic.addEventListener('click',function(){
     if(rec&&rec.state==='recording'){rec.stop();return;}
     navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
@@ -320,24 +306,22 @@ export async function chatPage(threadChatId: number): Promise<string> {
       rec.ondataavailable=function(e){if(e.data.size)chunks.push(e.data);};
       rec.onstop=function(){
         stream.getTracks().forEach(function(t){t.stop();});
-        label('…');mic.disabled=true;
-        var blob=new Blob(chunks,{type:'audio/webm'});
+        mic.textContent='…';mic.disabled=true;mic.classList.remove('rec');
         var fr=new FileReader();
         fr.onloadend=function(){
-          var b64=String(fr.result).split(',')[1];
           fetch('/chat/voice',{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({audio:b64})})
+            body:JSON.stringify({audio:String(fr.result).split(',')[1]})})
             .then(function(r){return r.json();})
             .then(function(d){
-              if(d&&d.jarvis){var a=new Audio('/jarvis.mp3');a.play().catch(function(){});}
-              setTimeout(function(){location.reload();}, d&&d.jarvis?900:0);
+              if(d&&d.jarvis)clip();
+              setTimeout(function(){location.reload();},d&&d.jarvis?900:0);
             })
-            .catch(function(){label('🎙');mic.disabled=false;alert('Could not send that.');});
+            .catch(function(){mic.textContent='🎙';mic.disabled=false;alert('Could not send that.');});
         };
-        fr.readAsDataURL(blob);
+        fr.readAsDataURL(new Blob(chunks,{type:'audio/webm'}));
       };
-      rec.start();label('⏹');
-      // A runaway recording is a big upload and a big bill. Two minutes is plenty.
+      rec.start();mic.textContent='⏹';mic.classList.add('rec');
+      // A runaway recording is a large upload and a real bill.
       setTimeout(function(){if(rec&&rec.state==='recording')rec.stop();},120000);
     }).catch(function(){alert('Microphone permission denied.');});
   });
