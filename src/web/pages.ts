@@ -283,12 +283,59 @@ export async function chatPage(threadChatId: number): Promise<string> {
   });
   // A reply can take ten seconds. Without a pending state that looks identical
   // to a dead page, and he presses Send again and it asks twice.
+  function esc(t){var d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+  function clock(){return new Date().toLocaleString('en-GB',
+    {day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});}
+  function bubble(who,text,mine){
+    var el=document.createElement('div');
+    el.className='msg'+(mine?' me':'');
+    el.innerHTML='<span class="who">'+who+' · '+clock()+'</span><div class="bubble">'+esc(text)+'</div>';
+    log.appendChild(el);log.scrollTop=log.scrollHeight;
+    return el;
+  }
+  function typing(){
+    var el=document.createElement('div');
+    el.className='msg typing';
+    el.innerHTML='<span class="who">Jarvis</span><div class="bubble"><i></i><i></i><i></i></div>';
+    log.appendChild(el);log.scrollTop=log.scrollHeight;
+    return el;
+  }
+
+  // His message appears the instant he sends it. Waiting for the model before
+  // showing his own words is why he could not tell whether anything had been
+  // sent, and why he pressed Send twice.
   f.addEventListener('submit',function(e){
-    if(send.disabled){e.preventDefault();return;}
-    send.disabled=true;send.textContent='Thinking…';
-    // Left enabled but read-only: a disabled field is not submitted, which
-    // would post an empty message and lose everything he wrote.
-    ta.readOnly=true;
+    e.preventDefault();
+    var text=ta.value.trim();
+    if(!text||send.disabled)return;
+
+    var empty=log.querySelector('.empty');if(empty)empty.remove();
+    bubble('You',text,true);
+    ta.value='';grow();
+    send.disabled=true;send.textContent='…';
+    var dots=typing();
+
+    fetch('/chat/send',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:text})})
+      .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d};});})
+      .then(function(res){
+        dots.remove();
+        if(!res.ok){
+          bubble('Jarvis',(res.d&&res.d.error)||'Something broke.',false);
+          ta.value=text;grow();          // his words come back, never swallowed
+          return;
+        }
+        try{localStorage.removeItem(DRAFT);}catch(err){}
+        if(res.d.jarvis)clip();
+        bubble('Jarvis',res.d.reply||'(no reply)',false);
+        if(on)speakLast();
+      })
+      .catch(function(){
+        dots.remove();
+        bubble('Jarvis','Could not reach the server. Your message is still in the box.',false);
+        ta.value=text;grow();
+      })
+      .then(function(){send.disabled=false;send.textContent='Send';ta.focus();});
   });
 
   function clip(){var a=new Audio('/jarvis.mp3');a.play().catch(function(){});}
@@ -607,27 +654,40 @@ ${escapeHtml(r.detail ?? "")}${r.calories ? ` · ${r.calories} cal` : ""}${r.pro
 }
 
 export async function farmPage(): Promise<string> {
-  const [lines, fails] = await Promise.all([farmFilament(), farmFailures(3650)]);
-  const short = lowFilament(lines);
-  const stock = lines.reduce((a, l) => a + l.total_g, 0);
-  const g = (v: number) => `${Math.round(v)}g`;
+  const lines = await farmFilament();
 
-  const byBrand = new Map<string, typeof lines>();
-  for (const l of lines) {
-    const b = l.brand || "Unbranded";
-    byBrand.set(b, [...(byBrand.get(b) ?? []), l]);
+  // The question he actually asks is "someone wants this in green — can I?".
+  // That is a palette of what is on the shelf, not a table of grams, and it is
+  // by material because PLA green does not help when the job needs PETG.
+  const inStock = lines.filter((l) => l.sealed > 0 || l.open_g > 0);
+  const byMaterial = new Map<string, typeof lines>();
+  for (const l of inStock) {
+    const m = l.material || "Other";
+    byMaterial.set(m, [...(byMaterial.get(m) ?? []), l]);
   }
 
-  const row = (l: (typeof lines)[number]) => `<div class="fil">
+  const spools = (l: (typeof lines)[number]) =>
+    l.sealed + (l.open_g > 0 ? 1 : 0);
+
+  const swatch = (l: (typeof lines)[number]) => `<div class="chip"
+  title="${escapeHtml(l.material)} ${escapeHtml(l.color ?? "")} — ${spools(l)} spool${spools(l) === 1 ? "" : "s"}">
+  <span class="dab" style="background:#${escapeHtml(l.color_hex || "888888")}"></span>
+  <b>${escapeHtml(l.color ?? "—")}</b>
+  <span class="ct">${spools(l)}</span>
+</div>`;
+
+  const row = (l: (typeof lines)[number]) => {
+    const n = spools(l);
+    return `<div class="fil${n === 0 ? " out" : ""}">
   <span class="sw" style="background:#${escapeHtml(l.color_hex || "888888")}"></span>
   <span class="n"><b>${escapeHtml(l.color ?? "")}</b>
-    <span>${escapeHtml(l.material)} · ${l.sealed} sealed · ${g(l.open_g)} open</span></span>
-  <span class="tag${l.total_g < 400 ? " due" : ""}">${g(l.total_g)}</span>
+    <span>${escapeHtml(l.material)}${l.open_g > 0 ? ` · one open, ${Math.round(l.open_g)}g left` : ""}</span></span>
+  <span class="tag${n === 0 ? " due" : ""}">${n} spool${n === 1 ? "" : "s"}</span>
   <span class="fbtns">
     <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="-1">
-      <button title="Used a spool">&minus;</button></form>
+      <button title="Used one">&minus;</button></form>
     <form method="post" action="/filament/${l.id}"><input type="hidden" name="delta" value="1">
-      <button title="Bought a spool">+</button></form>
+      <button title="Bought one">+</button></form>
     <form method="post" action="/filament/${l.id}/open"><button title="Open a sealed spool">open</button></form>
     <form method="post" action="/filament/${l.id}">
       <input type="number" name="grams" placeholder="${Math.round(l.open_g)}g" step="10"
@@ -635,35 +695,30 @@ export async function farmPage(): Promise<string> {
       <button>set</button></form>
   </span>
 </div>`;
+  };
+
+  const totalSpools = lines.reduce((a, l) => a + spools(l), 0);
 
   return page("Filament", "/farm", `
 <h1>Filament</h1>
-<p class="muted">${(stock / 1000).toFixed(1)} kg across ${lines.length} lines.
-Minus when you use a spool, plus when you buy one, <b>open</b> to break the seal,
-<b>set</b> to correct the grams left in the open one.</p>
+<p class="muted">${totalSpools} spools across ${inStock.length} colours in stock.
+Minus when you use one, plus when you buy one, <b>open</b> to break a seal.</p>
 
-${short.length ? `<h2>Running out</h2>${short.slice(0, 10).map(row).join("")}` : ""}
+${[...byMaterial.entries()].sort((a, b) => b[1].length - a[1].length).map(([mat, items]) => `
+<h2>${escapeHtml(mat)} <span class="tag">${items.length} colours</span></h2>
+<div class="palette">${items
+  .sort((a, b) => spools(b) - spools(a))
+  .map(swatch).join("")}</div>`).join("")}
 
-${[...byBrand.entries()].sort((a, b) => b[1].length - a[1].length).map(([brand, items]) => {
-  const kg = items.reduce((a, l) => a + l.total_g, 0) / 1000;
-  return `<div class="brand"><h2>${escapeHtml(brand)}</h2>
-<span class="tag">${items.length} lines · ${kg.toFixed(1)} kg</span></div>
-${items.sort((a, b) => b.total_g - a.total_g).map(row).join("")}`;
-}).join("")}
+${inStock.length === 0 ? `<p class="empty">Nothing in stock.</p>` : ""}
 
-<h2>What the jobs say</h2>
-<div class="card">
-  <div class="row"><h3>Failure uplift</h3>
-  <span class="tag${fails.wasted < fails.assumed ? " due" : ""}">${(fails.assumed * 100).toFixed(0)}% assumed</span></div>
-  <p>${fails.failed} of ${fails.jobs} prints failed (${(fails.rate * 100).toFixed(1)}%), dying on average
-  ${fails.diedAt}% of the way through — so real filament waste is about
-  <b>${(fails.wasted * 100).toFixed(1)}%</b>. Every unit carries roughly
-  ${(fails.assumed / (fails.wasted || 1)).toFixed(1)}× more failure cost than it should.</p>
-  <p style="margin-top:6px"><a href="/pricing">Change it on Pricing</a></p>
-</div>
+<h2>Every line</h2>
+<p class="muted">Out of stock stays listed, so you can restock from here when you have time.</p>
+${lines
+  .sort((a, b) => spools(b) - spools(a) || (a.material > b.material ? 1 : -1))
+  .map(row).join("")}
 `);
 }
-
 
 export async function calendarPage(): Promise<string> {
   const account = await connectedAccount();

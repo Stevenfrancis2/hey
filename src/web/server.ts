@@ -281,6 +281,21 @@ export async function startServer() {
     }
   });
 
+  // The JSON path, so the page can show his message the moment he sends it and
+  // stream the answer in when it arrives. The form POST below stays as the
+  // no-JavaScript fallback.
+  app.post<{ Body: { text?: string } }>("/chat/send", async (request, reply) => {
+    const text = (request.body.text ?? "").trim();
+    if (!text) { reply.code(400).send({ error: "empty" }); return; }
+    try {
+      const answer = await respond(config.telegram.ownerId, text);
+      reply.send({ reply: answer, jarvis: isGreeting(text) });
+    } catch (err) {
+      log.error({ err }, "console chat failed");
+      reply.code(500).send({ error: "Something broke on my side. Your message was kept." });
+    }
+  });
+
   app.post<{ Body: { text?: string } }>("/chat", async (request, reply) => {
     const text = (request.body.text ?? "").trim();
     if (text) {

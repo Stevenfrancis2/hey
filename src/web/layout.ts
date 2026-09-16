@@ -202,6 +202,16 @@ button:active{transform:translateY(1px)}
 .fil .n{flex:1;min-width:0}
 .fil .n b{font-weight:600;font-size:.95rem}
 .fil .n span{display:block;font-size:.81rem;color:var(--ink-3)}
+.palette{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));
+  margin-bottom:8px}
+.chip{display:flex;align-items:center;gap:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:8px 10px;box-shadow:var(--raise)}
+.chip .dab{width:24px;height:24px;border-radius:6px;flex:none;
+  border:1px solid color-mix(in srgb,var(--ink) 18%,transparent)}
+.chip b{font-size:.86rem;font-weight:600;flex:1;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.chip .ct{font-size:.8rem;color:var(--ink-3);font-variant-numeric:tabular-nums;flex:none}
+.fil.out{opacity:.5}
 .fbtns{display:flex;gap:4px;align-items:center;flex:none}
 .fbtns form{display:flex;gap:3px}
 .fbtns button{margin:0;min-height:34px;padding:0 11px;font-size:.84rem;font-weight:600;
@@ -265,6 +275,12 @@ button.ghost:hover{color:var(--signal);filter:none}
 .tools #send[disabled]{opacity:.6;cursor:progress}
 @keyframes pulse{50%{opacity:.55}}
 .msg:last-child{margin-bottom:0}
+.msg.typing .bubble{display:flex;gap:5px;align-items:center;padding:15px}
+.msg.typing i{width:7px;height:7px;border-radius:50%;background:var(--ink-3);
+  animation:blink 1.3s infinite}
+.msg.typing i:nth-child(2){animation-delay:.18s}
+.msg.typing i:nth-child(3){animation-delay:.36s}
+@keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
 .flash{background:var(--accent-soft);border:1px solid var(--accent);color:var(--accent-ink);
   border-radius:var(--radius);padding:12px 15px;margin-bottom:18px;font-size:.93rem}
 
