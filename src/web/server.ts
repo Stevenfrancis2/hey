@@ -30,6 +30,7 @@ import { readFile } from "node:fs/promises";
 import { jarvisAudioBytes, isGreeting } from "../integrations/greeting.js";
 import { coverBytes } from "../integrations/bambu.js";
 import { transcribe } from "../integrations/transcribe.js";
+import { asProviderError } from "../integrations/provider-errors.js";
 
 // The Google callback carries no session cookie (Google redirects the browser
 // there), so it is guarded by a one-time state value instead.
@@ -292,7 +293,14 @@ export async function startServer() {
       reply.send({ reply: answer, jarvis: isGreeting(text) });
     } catch (err) {
       log.error({ err }, "console chat failed");
-      reply.code(500).send({ error: "Something broke on my side. Your message was kept." });
+      // Out of credit is the one failure he can actually fix, and "something
+      // broke" sends him hunting through the UI instead of to the billing page.
+      const p = asProviderError("anthropic", err);
+      reply.code(500).send({
+        error: p?.needsHim
+          ? p.forTelegram
+          : "Something broke on my side. Your message is still in the box — try again.",
+      });
     }
   });
 

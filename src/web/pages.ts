@@ -332,7 +332,9 @@ export async function chatPage(threadChatId: number): Promise<string> {
         dots.remove();
         if(!res.ok){
           bubble('Jarvis',(res.d&&res.d.error)||'Something broke.',false);
-          ta.value=text;grow();          // his words come back, never swallowed
+          // His words come back, never swallowed — but only put them back in the
+          // box if he can act on it. Retyping into a dead API is pointless.
+          ta.value=text;grow();
           return;
         }
         try{localStorage.removeItem(DRAFT);}catch(err){}
