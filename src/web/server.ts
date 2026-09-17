@@ -1,7 +1,7 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import formbody from "@fastify/formbody";
-import { webhookCallback } from "grammy";
+import { webhookCallback, InputFile } from "grammy";
 import { config, isProduction } from "../config.js";
 import { bot } from "../bot/index.js";
 import { log } from "../log.js";
@@ -14,12 +14,13 @@ import { MANIFEST } from "./layout.js";
 import { completeById, reopenById, dropById, postponeById, editById,
          createTask } from "../memory/tasks.js";
 import { createReminder, cancelById, shiftById, editReminder } from "../memory/reminders.js";
+import { record as recordCameraEvent, setCamera, snapshotOf } from "../memory/cameras.js";
 import { setGlobals as setFarmGlobals, saveProduct, deleteProduct, adjustSealed, openSpool,
          setOpenGrams } from "../memory/farm.js";
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
   watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
-  farmPage, calendarPage, printersPage, pricingPage, remindersPage,
+  farmPage, calendarPage, printersPage, pricingPage, remindersPage, camerasPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
@@ -28,7 +29,7 @@ import {
   consentUrl, exchangeCode, isConfigured as googleConfigured,
   connectedAccount, disconnect, redirectUri,
 } from "../integrations/google.js";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { jarvisAudioBytes, isGreeting } from "../integrations/greeting.js";
 import { coverBytes } from "../integrations/bambu.js";
@@ -40,6 +41,9 @@ import { asProviderError } from "../integrations/provider-errors.js";
 const OPEN_PATHS = new Set([
   "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png", "/jarvis.mp3",
   "/auth/google/callback",
+  // Pushed to by the watcher on his LAN, which has no browser session. Guarded
+  // by its own bearer token instead.
+  "/camera/event",
 ]);
 
 const googleStates = new Map<string, number>();
@@ -232,6 +236,56 @@ export async function startServer() {
       });
     }
     reply.redirect("/tasks");
+  });
+
+  // Detection runs at home and posts here. A bearer token rather than a session
+  // because the sender is a script on a Pi, and compared in constant time so the
+  // endpoint cannot be probed a byte at a time.
+  app.post<{ Body: { channel?: number; label?: string; confidence?: number; snapshot?: string } }>(
+    "/camera/event", async (request, reply) => {
+      const given = (request.headers.authorization ?? "").replace(/^Bearer /i, "");
+      const want = config.cameraToken;
+      const a = Buffer.from(given), b = Buffer.from(want);
+      if (!want || a.length !== b.length || !timingSafeEqual(a, b)) {
+        reply.code(401).send({ error: "bad token" });
+        return;
+      }
+      const { channel, label, confidence, snapshot } = request.body;
+      if (!channel || !label) { reply.code(400).send({ error: "channel and label required" }); return; }
+
+      const shot = snapshot ? Buffer.from(snapshot, "base64") : null;
+      const res = await recordCameraEvent({ channel, label, confidence, snapshot: shot });
+
+      if (res.notify) {
+        const name = res.camera?.name ?? `Channel ${channel}`;
+        const caption = `${label === "person" ? "Someone" : label} at ${name}` +
+          (confidence ? ` (${Math.round(confidence * 100)}%)` : "");
+        if (shot) {
+          await bot.api.sendPhoto(config.telegram.ownerId, new InputFile(shot), { caption })
+            .catch((err) => log.warn({ err }, "camera photo failed"));
+        } else {
+          await bot.api.sendMessage(config.telegram.ownerId, caption)
+            .catch((err) => log.warn({ err }, "camera alert failed"));
+        }
+      }
+      reply.send({ ok: true, notified: res.notify });
+    });
+
+  app.get("/cameras", async (_r, reply) => reply.type("text/html").send(await camerasPage()));
+  app.post<{ Params: { ch: string }; Body: Record<string, string> }>(
+    "/cameras/:ch", async (r, reply) => {
+      await setCamera(Number(r.params.ch), {
+        name: r.body.name,
+        notify: r.body.notify === "on",
+        quietFrom: r.body.quiet_from === "" ? null : Number(r.body.quiet_from),
+        quietTo: r.body.quiet_to === "" ? null : Number(r.body.quiet_to),
+      });
+      reply.redirect("/cameras");
+    });
+  app.get<{ Params: { id: string } }>("/cameras/shot/:id", async (r, reply) => {
+    const img = await snapshotOf(r.params.id);
+    if (!img) { reply.code(404).send(); return; }
+    reply.type("image/jpeg").header("cache-control", "private, max-age=3600").send(img);
   });
 
   app.get("/reminders", async (_r, reply) => reply.type("text/html").send(await remindersPage()));

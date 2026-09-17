@@ -687,3 +687,31 @@ CREATE TABLE IF NOT EXISTS holdings (
   UNIQUE (kind, name)
 );
 CREATE INDEX IF NOT EXISTS holdings_kind_idx ON holdings (kind);
+
+-- ─────────────────────────────────────────────────────────────
+-- CAMERAS — sixteen channels on a TVT NVR at home
+--
+-- Detection runs on his LAN and pushes here. Frankfurt cannot reach
+-- 192.168.100.239 and never will, so the direction is fixed: nothing in this
+-- system ever dials into his house.
+-- ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS cameras (
+  channel    integer PRIMARY KEY,          -- chID on the NVR, 1-16
+  name       text NOT NULL,                -- "Front gate", not "chID=7"
+  notify     boolean NOT NULL DEFAULT true,
+  quiet_from smallint,                     -- hour, local; null = never quiet
+  quiet_to   smallint,
+  last_seen  timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS camera_events (
+  id         bigserial PRIMARY KEY,
+  channel    integer NOT NULL,
+  label      text NOT NULL,                -- person|car|motion|...
+  confidence numeric(4,3),
+  snapshot   bytea,                        -- the frame, small; NULL if none sent
+  notified   boolean NOT NULL DEFAULT false,
+  at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS camera_events_at_idx ON camera_events (at DESC);
+CREATE INDEX IF NOT EXISTS camera_events_chan_idx ON camera_events (channel, at DESC);

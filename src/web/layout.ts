@@ -27,6 +27,7 @@ const NAV: [string, string, string][] = [
   ["/reminders", "Reminders", "now"],
   ["/calendar", "Calendar", "now"],
   ["/desk", "Desk", "now"],
+  ["/cameras", "Cameras", "now"],
   ["/printers", "Printers", "work"],
   ["/farm", "Filament", "work"],
   ["/pricing", "Pricing", "work"],
@@ -253,6 +254,13 @@ a.card:hover{text-decoration:none}
 input[type=datetime-local]{width:100%;background:var(--surface);color:var(--ink);
   border:1px solid var(--line-2);border-radius:var(--radius);padding:11px 13px;
   font:inherit;font-size:16px}
+
+.shots{display:grid;gap:9px;grid-template-columns:repeat(auto-fill,minmax(min(100%,190px),1fr))}
+.shot{display:block;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);overflow:hidden;box-shadow:var(--raise);color:inherit}
+.shot:hover{text-decoration:none;border-color:var(--line-2)}
+.shot img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--surface-2)}
+.shot span{display:block;padding:8px 10px;font-size:.8rem;color:var(--ink-2);line-height:1.4}
 
 /* config grids: labelled number fields that stay readable on a phone */
 .cfgs{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(min(100%,168px),1fr))}

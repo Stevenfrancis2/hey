@@ -51,6 +51,9 @@ export const config = {
   /** Optional second way into the console, for when he will not open Telegram. */
   consolePassword: optional("CONSOLE_PASSWORD", ""),
 
+  /** Shared secret for the camera watcher on his LAN to push events in. */
+  cameraToken: optional("CAMERA_TOKEN", ""),
+
   /** Bambu Cloud, for live printer status. Optional; the farm pages work without it. */
   bambu: {
     username: optional("BAMBU_USERNAME", ""),

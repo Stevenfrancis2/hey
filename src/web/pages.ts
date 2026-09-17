@@ -13,6 +13,7 @@ import { listTopics as listResearchTopics, recentFindings, listCandidates } from
 import { listDecisions, findDecision, listOptions, listAssumptions, payback } from "../memory/decisions.js";
 import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
 import { netWorth } from "../memory/networth.js";
+import { listCameras, recentEvents } from "../memory/cameras.js";
 import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
          products as farmProducts, globals as farmGlobals, priceList } from "../memory/farm.js";
 import { listEvents, connectedAccount } from "../integrations/google.js";
@@ -1052,5 +1053,51 @@ ${items.map((r) => `<div class="task">
     </div>
   </form>
 </div>`).join("")}`).join("")}
+`);
+}
+
+export async function camerasPage(): Promise<string> {
+  const [cams, events] = await Promise.all([listCameras(), recentEvents(40)]);
+
+  const hour = (h: number | null) => (h === null ? "" : String(h));
+  const when = (d: Date) =>
+    new Date(d).toLocaleString("en-GB",
+      { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+
+  return page("Cameras", "/cameras", `
+<h1>Cameras</h1>
+<p class="muted">${cams.length} channel${cams.length === 1 ? "" : "s"} reporting.
+Detection runs on your network and pushes here — nothing reaches into the house.
+Name them and the alerts read "Front gate" instead of "Channel 7".</p>
+
+${cams.length === 0 ? `<div class="flash">No channel has reported yet. Once the watcher is
+running on your LAN, every channel it sees will appear here automatically.</div>` : ""}
+
+${cams.map((c) => `<div class="task">
+  <div class="row"><h3>${escapeHtml(c.name)}</h3>
+    <span class="tag${c.notify ? " ok" : ""}">${c.notify ? "alerts on" : "muted"}</span></div>
+  <p>Channel ${c.channel}${c.last_seen ? ` · last event ${when(c.last_seen)}` : " · nothing yet"}</p>
+  <form class="edit" method="post" action="/cameras/${c.channel}" style="display:flex">
+    <input type="text" name="name" value="${escapeHtml(c.name)}" placeholder="What it looks at">
+    <div class="erow">
+      <label class="cfg" style="flex-direction:row;align-items:center;gap:7px;flex:none">
+        <input type="checkbox" name="notify" ${c.notify ? "checked" : ""} style="width:auto;margin:0">
+        <span>alert me</span></label>
+      <input type="number" name="quiet_from" min="0" max="23" placeholder="quiet from"
+             value="${hour(c.quiet_from)}" style="max-width:120px">
+      <input type="number" name="quiet_to" min="0" max="23" placeholder="quiet to"
+             value="${hour(c.quiet_to)}" style="max-width:120px">
+      <button class="prim">save</button>
+    </div>
+  </form>
+</div>`).join("")}
+
+<h2>Recent</h2>
+${events.length === 0 ? `<p class="empty">Nothing seen yet.</p>` : ""}
+<div class="shots">${events.map((e) => `<a class="shot" href="/cameras/shot/${e.id}">
+  <img src="/cameras/shot/${e.id}" alt="" loading="lazy">
+  <span>${escapeHtml(e.name ?? `Channel ${e.channel}`)} · ${escapeHtml(e.label)}<br>
+  <b>${when(e.at)}</b></span>
+</a>`).join("")}</div>
 `);
 }
