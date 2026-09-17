@@ -153,8 +153,14 @@ export const setReminderTool = betaZodTool({
       .describe("Set this for anything recurring. ONE call covers the whole run."),
     until: z.string().optional()
       .describe("ISO date the repetition stops on. Required with repeat."),
+    ring: z.boolean().optional()
+      .describe(
+        "Actually telephone him instead of only messaging. For anything he cannot afford to " +
+        "sleep through — his phone is silent while he works, so a notification will not wake " +
+        "him. Ask before setting it on something routine; a call at 3am he did not want is " +
+        "worse than a missed notification."),
   }),
-  run: async ({ text, fire_at, repeat, until }) => {
+  run: async ({ text, fire_at, repeat, until, ring }) => {
     const when = new Date(fire_at);
     if (Number.isNaN(when.getTime())) return `"${fire_at}" is not a valid datetime.`;
     if (when.getTime() < Date.now() - 60_000) return `${fire_at} is in the past.`;
@@ -163,14 +169,15 @@ export const setReminderTool = betaZodTool({
       if (!until) return `A repeating reminder needs an "until" date.`;
       const end = new Date(until);
       if (Number.isNaN(end.getTime())) return `"${until}" is not a valid date.`;
-      const made = await createRepeating(text, when, repeat, end);
+      const made = await createRepeating(text, when, repeat, end, ring ?? false);
       if (made.length === 0) return `That range produced no reminders — check the dates.`;
       return `${made.length} reminders set, every ${repeat} from ${formatDate(made[0]!.fire_at)} ` +
              `to ${formatDate(made[made.length - 1]!.fire_at)}: "${text}".`;
     }
 
-    const reminder = await createReminder(text, when);
-    return `Reminder set for ${formatDate(reminder.fire_at)}: "${reminder.text}".`;
+    const reminder = await createReminder(text, when, ring ?? false);
+    return `Reminder set for ${formatDate(reminder.fire_at)}: "${reminder.text}"` +
+           (ring ? " — and I'll ring you." : ".");
   },
 });
 

@@ -51,6 +51,14 @@ export const config = {
   /** Optional second way into the console, for when he will not open Telegram. */
   consolePassword: optional("CONSOLE_PASSWORD", ""),
 
+  /** Twilio, for reminders that have to ring rather than buzz. Optional. */
+  twilio: {
+    accountSid: optional("TWILIO_ACCOUNT_SID", ""),
+    authToken: optional("TWILIO_AUTH_TOKEN", ""),
+    from: optional("TWILIO_FROM", ""),
+    to: optional("TWILIO_TO", ""),
+  },
+
   /** Shared secret for the camera watcher on his LAN to push events in. */
   cameraToken: optional("CAMERA_TOKEN", ""),
 

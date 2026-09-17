@@ -1,13 +1,13 @@
 import { one, query } from "../db/index.js";
 
-export type Reminder = { id: string; text: string; fire_at: Date | null; status: string };
+export type Reminder = { id: string; text: string; fire_at: Date | null; status: string; call?: boolean };
 
-export async function createReminder(text: string, fireAt: Date): Promise<Reminder> {
+export async function createReminder(text: string, fireAt: Date, ring = false): Promise<Reminder> {
   // The same reminder five times, five minutes apart, is what he actually got:
   // he asked more than once, and nothing checked. A repeat of the same words at
   // roughly the same time is a re-ask, not a second reminder.
   const existing = await one<Reminder>(
-    `SELECT id, text, fire_at, status FROM reminders
+    `SELECT id, text, fire_at, status, call FROM reminders
      WHERE status = 'scheduled' AND text = $1
        AND fire_at BETWEEN $2::timestamptz - interval '45 minutes'
                        AND $2::timestamptz + interval '45 minutes'
@@ -17,9 +17,9 @@ export async function createReminder(text: string, fireAt: Date): Promise<Remind
   if (existing) return existing;
 
   const row = await one<Reminder>(
-    `INSERT INTO reminders (text, fire_at) VALUES ($1, $2)
-     RETURNING id, text, fire_at, status`,
-    [text, fireAt],
+    `INSERT INTO reminders (text, fire_at, call) VALUES ($1, $2, $3)
+     RETURNING id, text, fire_at, status, call`,
+    [text, fireAt, ring],
   );
   if (!row) throw new Error("reminder insert returned no row");
   return row;
@@ -39,13 +39,14 @@ export async function createRepeating(
   first: Date,
   every: "day" | "week",
   until: Date,
+  ring = false,
 ): Promise<Reminder[]> {
   const out: Reminder[] = [];
   const step = every === "day" ? 1 : 7;
   const cap = every === "day" ? 90 : 52;
 
   for (let i = 0, at = new Date(first); i < cap && at <= until; i++) {
-    if (at.getTime() > Date.now() - 60_000) out.push(await createReminder(text, new Date(at)));
+    if (at.getTime() > Date.now() - 60_000) out.push(await createReminder(text, new Date(at), ring));
     at = new Date(at.getTime() + step * 864e5);
   }
   return out;
@@ -63,7 +64,7 @@ export async function cancelAllMatching(fragment: string): Promise<number> {
 
 export async function listReminders(): Promise<Reminder[]> {
   return query<Reminder>(
-    `SELECT id, text, fire_at, status FROM reminders
+    `SELECT id, text, fire_at, status, call FROM reminders
      WHERE status = 'scheduled' ORDER BY fire_at ASC LIMIT 50`,
   );
 }
@@ -76,7 +77,7 @@ export async function cancelReminder(textFragment: string): Promise<Reminder | n
        WHERE status = 'scheduled' AND text ILIKE '%' || $1 || '%'
        ORDER BY fire_at ASC LIMIT 1
      )
-     RETURNING id, text, fire_at, status`,
+     RETURNING id, text, fire_at, status, call`,
     [textFragment],
   );
 }
@@ -92,7 +93,7 @@ export async function claimDueReminders(): Promise<Reminder[]> {
        FOR UPDATE SKIP LOCKED
        LIMIT 20
      )
-     RETURNING id, text, fire_at, status`,
+     RETURNING id, text, fire_at, status, call`,
   );
 }
 

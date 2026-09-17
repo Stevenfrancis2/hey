@@ -715,3 +715,7 @@ CREATE TABLE IF NOT EXISTS camera_events (
 );
 CREATE INDEX IF NOT EXISTS camera_events_at_idx ON camera_events (at DESC);
 CREATE INDEX IF NOT EXISTS camera_events_chan_idx ON camera_events (channel, at DESC);
+
+-- A reminder he cannot afford to sleep through rings his phone instead of
+-- buzzing it. Silent mode is exactly when the important ones fire.
+ALTER TABLE reminders ADD COLUMN IF NOT EXISTS call boolean NOT NULL DEFAULT false;

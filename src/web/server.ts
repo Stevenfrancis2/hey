@@ -291,7 +291,7 @@ export async function startServer() {
   app.get("/reminders", async (_r, reply) => reply.type("text/html").send(await remindersPage()));
   app.post<{ Body: Record<string, string> }>("/reminders", async (r, reply) => {
     const text = (r.body.text ?? "").trim();
-    if (text && r.body.at) await createReminder(text, new Date(r.body.at));
+    if (text && r.body.at) await createReminder(text, new Date(r.body.at), r.body.ring === "on");
     reply.redirect("/reminders");
   });
   app.post<{ Params: { id: string } }>("/reminders/:id/cancel", async (r, reply) => {

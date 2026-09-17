@@ -1004,8 +1004,8 @@ ${items.map((p: { id: string; name: string; h2c: boolean; filament_g: unknown; u
 }
 
 export async function remindersPage(): Promise<string> {
-  const rows = await query<{ id: string; text: string; fire_at: Date; status: string }>(
-    `SELECT id, text, fire_at, status FROM reminders
+  const rows = await query<{ id: string; text: string; fire_at: Date; status: string; call: boolean }>(
+    `SELECT id, text, fire_at, status, call FROM reminders
      WHERE status = 'scheduled' ORDER BY fire_at LIMIT 200`);
 
   // Grouped by day. Eight identical "Royal Pizza accounting" lines read as a
@@ -1028,6 +1028,8 @@ or not — and they keep working even if the AI is down.</p>
   <input type="text" name="text" placeholder="Remind me to…" required>
   <div class="erow">
     <input type="datetime-local" name="at" required>
+    <label class="cfg" style="flex-direction:row;align-items:center;gap:7px;flex:none">
+      <input type="checkbox" name="ring" style="width:auto;margin:0"><span>ring me</span></label>
     <button class="prim">Add</button>
   </div>
 </form>
@@ -1036,7 +1038,8 @@ ${rows.length === 0 ? `<p class="empty">Nothing scheduled.</p>` : ""}
 ${[...days.entries()].map(([day, items]) => `
 <h2>${escapeHtml(day)}</h2>
 ${items.map((r) => `<div class="task">
-  <div class="row"><h3>${escapeHtml(r.text)}</h3><span class="tag">${clock(r.fire_at)}</span></div>
+  <div class="row"><h3>${escapeHtml(r.text)}</h3>
+    <span class="tag${r.call ? " due" : ""}">${r.call ? "☎ " : ""}${clock(r.fire_at)}</span></div>
   <div class="tbtns">
     <form method="post" action="/reminders/${r.id}/postpone"><input type="hidden" name="hours" value="1">
       <button>+1h</button></form>

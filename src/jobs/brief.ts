@@ -3,6 +3,7 @@ import { generate } from "../agent/run.js";
 import { claimDueReminders } from "../memory/reminders.js";
 import { query } from "../db/index.js";
 import { log } from "../log.js";
+import { call as placeCall } from "../integrations/call.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 export async function fireDueReminders(api: Api, chatId: number): Promise<number> {
@@ -11,6 +12,17 @@ export async function fireDueReminders(api: Api, chatId: number): Promise<number
     await api.sendMessage(chatId, `⏰ ${reminder.text}`).catch((err) =>
       log.error({ err, id: reminder.id }, "reminder send failed"),
     );
+    // A notification cannot wake him: his phone is silent while he works, and
+    // silent is exactly when the reminders that matter fire. A call is the one
+    // thing iOS lets through.
+    if (reminder.call) {
+      const r = await placeCall(reminder.text);
+      if (!r.ok) {
+        log.warn({ id: reminder.id, detail: r.detail }, "wake-up call failed");
+        await api.sendMessage(chatId, `(I tried to ring you about that and couldn't: ${r.detail})`)
+          .catch(() => {});
+      }
+    }
   }
   return due.length;
 }
