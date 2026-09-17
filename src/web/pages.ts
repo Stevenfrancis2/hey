@@ -1000,3 +1000,57 @@ ${items.map((p: { id: string; name: string; h2c: boolean; filament_g: unknown; u
 </script>
 `);
 }
+
+export async function remindersPage(): Promise<string> {
+  const rows = await query<{ id: string; text: string; fire_at: Date; status: string }>(
+    `SELECT id, text, fire_at, status FROM reminders
+     WHERE status = 'scheduled' ORDER BY fire_at LIMIT 200`);
+
+  // Grouped by day. Eight identical "Royal Pizza accounting" lines read as a
+  // wall; under a date each one is obviously one of a run he set deliberately.
+  const days = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const key = new Date(r.fire_at).toLocaleDateString("en-GB",
+      { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Beirut" });
+    days.set(key, [...(days.get(key) ?? []), r]);
+  }
+  const clock = (d: Date) =>
+    new Date(d).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+
+  return page("Reminders", "/reminders", `
+<h1>Reminders</h1>
+<p class="muted">${rows.length} scheduled. These arrive on Telegram whether the app is open
+or not — and they keep working even if the AI is down.</p>
+
+<form method="post" action="/reminders" class="newtask">
+  <input type="text" name="text" placeholder="Remind me to…" required>
+  <div class="erow">
+    <input type="datetime-local" name="at" required>
+    <button class="prim">Add</button>
+  </div>
+</form>
+
+${rows.length === 0 ? `<p class="empty">Nothing scheduled.</p>` : ""}
+${[...days.entries()].map(([day, items]) => `
+<h2>${escapeHtml(day)}</h2>
+${items.map((r) => `<div class="task">
+  <div class="row"><h3>${escapeHtml(r.text)}</h3><span class="tag">${clock(r.fire_at)}</span></div>
+  <div class="tbtns">
+    <form method="post" action="/reminders/${r.id}/postpone"><input type="hidden" name="hours" value="1">
+      <button>+1h</button></form>
+    <form method="post" action="/reminders/${r.id}/postpone"><input type="hidden" name="hours" value="24">
+      <button>+1d</button></form>
+    <form method="post" action="/reminders/${r.id}/cancel"><button class="ghost">cancel</button></form>
+    <button type="button" class="ghost" onclick="this.closest('.task').querySelector('.edit').hidden=!this.closest('.task').querySelector('.edit').hidden">edit</button>
+  </div>
+  <form class="edit" hidden method="post" action="/reminders/${r.id}/edit">
+    <input type="text" name="text" value="${escapeHtml(r.text)}" required>
+    <div class="erow">
+      <input type="datetime-local" name="at"
+             value="${new Date(new Date(r.fire_at).getTime() - new Date(r.fire_at).getTimezoneOffset() * 60000).toISOString().slice(0, 16)}">
+      <button class="prim">save</button>
+    </div>
+  </form>
+</div>`).join("")}`).join("")}
+`);
+}

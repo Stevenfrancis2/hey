@@ -141,3 +141,27 @@ export async function listAll(includeDone = false): Promise<Task[]> {
      LIMIT 200`,
     [includeDone]);
 }
+
+/**
+ * Loose match on a title fragment, newest first, open before done.
+ *
+ * The agent's tools used to demand the exact title — "I need the exact task
+ * name. What's it called?" — which is absurd when it is holding the list. This
+ * lets a tool find candidates and either act or say which ones it meant.
+ */
+export async function findTasks(fragment: string, limit = 5): Promise<Task[]> {
+  return query<Task>(
+    `SELECT t.*, c.key AS context_key FROM tasks t
+     LEFT JOIN contexts c ON c.id = t.context_id
+     WHERE t.status <> 'dropped'
+       AND (t.title ILIKE '%' || $1 || '%'
+            OR coalesce(t.detail,'') ILIKE '%' || $1 || '%'
+            OR similarity(t.title, $1) > 0.25)
+     ORDER BY t.status = 'done', similarity(t.title, $1) DESC, t.created_at DESC
+     LIMIT $2`,
+    [fragment, limit]);
+}
+
+export async function deleteById(id: string): Promise<void> {
+  await query(`DELETE FROM tasks WHERE id = $1`, [id]);
+}

@@ -5,7 +5,8 @@ import * as budget from "../memory/budget.js";
 import * as nw from "../memory/networth.js";
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { recall } from "../memory/recall.js";
-import { createTask, listTasks, completeTask, snoozeTask } from "../memory/tasks.js";
+import { createTask, listTasks, completeTask, snoozeTask,
+         findTasks, deleteById, editById, postponeById, completeById } from "../memory/tasks.js";
 import { createReminder, createRepeating, listReminders, cancelReminder,
          cancelAllMatching } from "../memory/reminders.js";
 import { createProject, listProjects, updateProject } from "../memory/projects.js";
@@ -108,10 +109,23 @@ export const listTasksTool = betaZodTool({
 export const completeTaskTool = betaZodTool({
   name: "complete_task",
   description: "Mark a task done. Matches loosely on the title, so Steven's phrasing is enough.",
-  inputSchema: z.object({ title: z.string() }),
+  inputSchema: z.object({ title: z.string().describe("Roughly what he calls it") }),
   run: async ({ title }) => {
-    const task = await completeTask(title);
-    return task ? `Done: "${task.title}".` : `No open task matching "${title}".`;
+    // It used to answer "I need the exact task name. What's it called?" while
+    // holding the list. If there is one sensible match, close it; if there are
+    // several, name them rather than asking him to guess the wording back.
+    const hits = await findTasks(title);
+    const open = hits.filter((t) => t.status !== "done");
+    if (open.length === 0) {
+      return hits.length > 0
+        ? `"${hits[0]!.title}" is already done.`
+        : `No open task matching "${title}".`;
+    }
+    if (open.length > 1 && !open[0]!.title.toLowerCase().includes(title.toLowerCase())) {
+      return `Which one? ${open.map((t) => `"${t.title}"`).join(", ")}`;
+    }
+    await completeById(open[0]!.id);
+    return `Done: "${open[0]!.title}".`;
   },
 });
 
@@ -1322,6 +1336,79 @@ export const netWorthTool = betaZodTool({
   },
 });
 
+// ── Tasks and reminders: everything the console can do ────
+// The agent kept telling him "I don't have a tool for that" while he was
+// looking at a page with the button on it. Anything he can do by tapping he
+// must be able to do by saying.
+
+export const updateTaskTool = betaZodTool({
+  name: "update_task",
+  description:
+    "Change a task: rename it, move its due date, change its room or priority. Matches " +
+    "loosely on what he calls it. Use for 'push the accounting to friday', 'that one's " +
+    "actually for cligli', 'rename it to X'.",
+  inputSchema: z.object({
+    task: z.string().describe("Roughly what he calls it"),
+    title: z.string().optional(),
+    detail: z.string().optional(),
+    due_date: z.string().optional().describe("ISO 8601. Use clear_due to remove one."),
+    clear_due: z.boolean().optional(),
+    context: ContextKey.optional(),
+    postpone_days: z.number().int().min(1).max(365).optional(),
+  }),
+  run: async (input) => {
+    const hits = await findTasks(input.task);
+    if (hits.length === 0) return `No task matching "${input.task}".`;
+    if (hits.length > 1 && !hits[0]!.title.toLowerCase().includes(input.task.toLowerCase())) {
+      return `Which one? ${hits.map((t) => `"${t.title}"`).join(", ")}`;
+    }
+    const t = hits[0]!;
+    if (input.postpone_days) {
+      await postponeById(t.id, input.postpone_days);
+      return `Pushed "${t.title}" back ${input.postpone_days} day${input.postpone_days === 1 ? "" : "s"}.`;
+    }
+    await editById(t.id, {
+      title: input.title,
+      detail: input.detail,
+      dueAt: input.clear_due ? null : input.due_date ? new Date(input.due_date) : undefined,
+      contextKey: input.context ?? null,
+    });
+    return `Updated "${input.title ?? t.title}".`;
+  },
+});
+
+export const deleteTaskTool = betaZodTool({
+  name: "delete_task",
+  description:
+    "Remove a task entirely, as opposed to marking it done. Use when he says delete, remove " +
+    "or get rid of it — something that should never have been a task, or a duplicate.",
+  inputSchema: z.object({ task: z.string() }),
+  run: async ({ task }) => {
+    const hits = await findTasks(task);
+    if (hits.length === 0) return `No task matching "${task}".`;
+    if (hits.length > 1 && !hits[0]!.title.toLowerCase().includes(task.toLowerCase())) {
+      return `Which one? ${hits.map((t) => `"${t.title}"`).join(", ")}`;
+    }
+    await deleteById(hits[0]!.id);
+    return `Deleted "${hits[0]!.title}".`;
+  },
+});
+
+export const cancelRemindersTool = betaZodTool({
+  name: "cancel_reminders",
+  description:
+    "Cancel every scheduled reminder matching a phrase, not just the first. Use for 'stop " +
+    "the accounting reminders', 'cancel the 6pm and 9pm ones' — a recurring reminder is many " +
+    "rows and cancelling one of them is not what he meant.",
+  inputSchema: z.object({ matching: z.string().describe("A phrase from the reminder text") }),
+  run: async ({ matching }) => {
+    const n = await cancelAllMatching(matching);
+    return n === 0
+      ? `No scheduled reminders matching "${matching}".`
+      : `Cancelled ${n} reminder${n === 1 ? "" : "s"} matching "${matching}".`;
+  },
+});
+
 export const clientTools = [
   recallTool,
   createTaskTool,
@@ -1378,6 +1465,9 @@ export const clientTools = [
   budgetTool,
   setHoldingTool,
   netWorthTool,
+  updateTaskTool,
+  deleteTaskTool,
+  cancelRemindersTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

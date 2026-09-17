@@ -13,12 +13,13 @@ import {
 import { MANIFEST } from "./layout.js";
 import { completeById, reopenById, dropById, postponeById, editById,
          createTask } from "../memory/tasks.js";
+import { createReminder, cancelById, shiftById, editReminder } from "../memory/reminders.js";
 import { setGlobals as setFarmGlobals, saveProduct, deleteProduct, adjustSealed, openSpool,
          setOpenGrams } from "../memory/farm.js";
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
   watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
-  farmPage, calendarPage, printersPage, pricingPage,
+  farmPage, calendarPage, printersPage, pricingPage, remindersPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
 import { enqueueEnrich } from "../jobs/index.js";
@@ -232,6 +233,25 @@ export async function startServer() {
     }
     reply.redirect("/tasks");
   });
+
+  app.get("/reminders", async (_r, reply) => reply.type("text/html").send(await remindersPage()));
+  app.post<{ Body: Record<string, string> }>("/reminders", async (r, reply) => {
+    const text = (r.body.text ?? "").trim();
+    if (text && r.body.at) await createReminder(text, new Date(r.body.at));
+    reply.redirect("/reminders");
+  });
+  app.post<{ Params: { id: string } }>("/reminders/:id/cancel", async (r, reply) => {
+    await cancelById(r.params.id); reply.redirect("/reminders");
+  });
+  app.post<{ Params: { id: string }; Body: { hours?: string } }>(
+    "/reminders/:id/postpone", async (r, reply) => {
+      await shiftById(r.params.id, Number(r.body.hours) || 1); reply.redirect("/reminders");
+    });
+  app.post<{ Params: { id: string }; Body: Record<string, string> }>(
+    "/reminders/:id/edit", async (r, reply) => {
+      await editReminder(r.params.id, r.body.text ?? "", r.body.at ? new Date(r.body.at) : null);
+      reply.redirect("/reminders");
+    });
 
   app.get("/farm", async (_r, reply) => reply.type("text/html").send(await farmPage()));
   app.get("/printers", async (_r, reply) => reply.type("text/html").send(await printersPage()));

@@ -82,3 +82,21 @@ export async function claimDueReminders(): Promise<Reminder[]> {
      RETURNING id, text, fire_at, status`,
   );
 }
+
+// ── Editing from the console ──────────────────────────────
+export async function cancelById(id: string): Promise<void> {
+  await query(`UPDATE reminders SET status = 'cancelled' WHERE id = $1`, [id]);
+}
+
+export async function shiftById(id: string, hours: number): Promise<void> {
+  await query(
+    `UPDATE reminders SET fire_at = fire_at + make_interval(hours => $2::int)
+     WHERE id = $1 AND status = 'scheduled'`, [id, hours]);
+}
+
+export async function editReminder(id: string, text: string, at: Date | null): Promise<void> {
+  await query(
+    `UPDATE reminders SET text = coalesce(nullif($2,''), text),
+                          fire_at = coalesce($3::timestamptz, fire_at)
+     WHERE id = $1`, [id, text, at]);
+}
