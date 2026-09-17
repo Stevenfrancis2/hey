@@ -212,7 +212,7 @@ export async function roomPage(key: string): Promise<string> {
        FROM captures c JOIN capture_enrichment e ON e.capture_id = c.id
        JOIN contexts ctx ON ctx.id = e.context_id
        WHERE ctx.key = $1 AND c.raw_text IS NOT NULL
-       ORDER BY c.captured_at DESC LIMIT 100`, [key]),
+       ORDER BY c.captured_at DESC LIMIT 40`, [key]),
     listTasks({ contextKey: key }),
     listProjects(),
   ]);
@@ -230,7 +230,7 @@ ${tasks.length ? `<h2>Open</h2>${tasks.map((t) => `
 ${items.length === 0 ? '<p class="empty">Nothing here yet.</p>' : items.map((c) => `
 <div class="hit"><time>${when(c.captured_at)}${c.kind === "voice" ? " · voice" : ""}${
     c.author ? ` · ${escapeHtml(c.author)}` : ""}${c.intent ? ` · ${c.intent}` : ""}</time>
-${escapeHtml(c.raw_text)}</div>`).join("")}
+${escapeHtml(c.raw_text.length > 700 ? c.raw_text.slice(0, 700) + "…" : c.raw_text)}</div>`).join("")}
 `);
 }
 
@@ -293,6 +293,7 @@ export async function chatPage(threadChatId: number): Promise<string> {
   }).join("");
 
   return page("Chat", "/chat", `
+<h1 class="sr">Chat</h1>
 <div class="chat">
   <div class="log" id="log">${rendered || `<p class="empty">Say something.</p>`}</div>
   <form class="composer" method="post" action="/chat" id="f">

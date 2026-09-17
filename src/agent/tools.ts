@@ -131,7 +131,9 @@ export const completeTaskTool = betaZodTool({
 
 export const snoozeTaskTool = betaZodTool({
   name: "snooze_task",
-  description: "Hide a task until a later date.",
+  description:
+    "Hide a task until a later date, keeping it open. Use when he says not yet, later, "
+    + "or next week — as opposed to postpone, which moves the due date itself.",
   inputSchema: z.object({ title: z.string(), until: z.string().describe("ISO 8601 datetime") }),
   run: async ({ title, until }) => {
     const task = await snoozeTask(title, new Date(until));
@@ -174,7 +176,9 @@ export const setReminderTool = betaZodTool({
 
 export const listRemindersTool = betaZodTool({
   name: "list_reminders",
-  description: "List reminders that have not fired yet.",
+  description:
+    "Everything scheduled to reach him and when. Use before setting a new one, so he is not "
+    + "told the same thing twice, and whenever he asks what is coming up.",
   inputSchema: z.object({}),
   run: async () => {
     const reminders = await listReminders();
@@ -299,7 +303,9 @@ export const listWatchTool = betaZodTool({
 
 export const removeWatchTool = betaZodTool({
   name: "remove_from_watchlist",
-  description: "Stop tracking something.",
+  description:
+    "Stop tracking a ticker or theme on his watchlist. Use when he says he is out of it or "
+    + "no longer cares — his written thesis stays in his captures, only the tracking stops.",
   inputSchema: z.object({ name: z.string() }),
   run: async ({ name }) => {
     const item = await removeFromWatchlist(name);
@@ -609,7 +615,9 @@ export const listResearchTool = betaZodTool({
 
 export const removeResearchTool = betaZodTool({
   name: "remove_research_topic",
-  description: "Stop covering a topic.",
+  description:
+    "Drop a standing topic from the daily research desk. Use when a digest is not earning "
+    + "its place — the desk is the one real cost driver, so removing dead topics matters.",
   inputSchema: z.object({ name: z.string() }),
   run: async ({ name }) => {
     const topic = await removeResearchTopic(name);
@@ -1069,12 +1077,14 @@ export const farmStatusTool = betaZodTool({
     days: z.number().int().min(1).max(365).optional().describe("Window, default 30"),
   }),
   run: async ({ days }) => {
-    const { totals, printers } = await farm.farmStatus(days ?? 30);
+    // His farm history ends in July, so a 30-day default reported "0 jobs" and
+    // looked broken. Ask for everything unless he names a window.
+    const { totals, printers } = await farm.farmStatus(days ?? 3650);
     const lines = await farm.filament();
     const short = farm.low(lines);
     const stock = lines.reduce((a, l) => a + l.total_g, 0);
     return [
-      `Last ${days ?? 30} days: ${totals.jobs} jobs, ${totals.failed} failed` +
+      (days ? `Last ${days} days: ` : `All time: `) + `${totals.jobs} jobs, ${totals.failed} failed` +
         (totals.avg_hours ? `, average successful print ${totals.avg_hours}h` : ""),
       totals.last_job
         ? `Last job ended ${new Date(totals.last_job).toISOString().slice(0, 16).replace("T", " ")}`

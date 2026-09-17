@@ -98,6 +98,8 @@ a{color:var(--accent-ink);text-decoration:none}
 a:hover{text-decoration:underline}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 .skip{position:absolute;left:-9999px}
+/* A heading the page needs for structure but the layout has no room for. */
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .skip:focus{left:var(--gut);top:8px;z-index:50;background:var(--surface);
   padding:10px 14px;border-radius:8px;box-shadow:var(--raise-2)}
 
