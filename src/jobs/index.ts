@@ -7,6 +7,7 @@ import { fireDueReminders, sendBrief } from "./brief.js";
 import { runArchive } from "./archive.js";
 import { runResearch, runScout } from "./research.js";
 import { syncDrive } from "./drive.js";
+import { runWatchdog } from "./watch.js";
 import { config } from "../config.js";
 import { status as budgetStatus, warnIfNeeded } from "../memory/budget.js";
 
@@ -20,6 +21,7 @@ const DESK_DAILY_QUEUE = "research.daily";
 const DESK_WEEKLY_QUEUE = "research.weekly";
 const SCOUT_QUEUE = "automation.scout";
 const DRIVE_QUEUE = "drive.sync";
+const WATCH_QUEUE = "watchdog";
 
 export type EnrichJob = { captureId: string };
 
@@ -50,7 +52,8 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   const chatId = config.telegram.ownerId;
 
   for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE,
-                      DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE, DRIVE_QUEUE]) {
+                      DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE, DRIVE_QUEUE,
+                      WATCH_QUEUE]) {
     await instance.createQueue(name);
   }
 
@@ -87,6 +90,9 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   });
   await instance.work(DRIVE_QUEUE, { batchSize: 1 }, async () => {
     await syncDrive();
+  });
+  await instance.work(WATCH_QUEUE, { batchSize: 1 }, async () => {
+    await runWatchdog(api, chatId);
   });
 
   // A capture is written before it is enqueued. If the process dies in between,
@@ -126,6 +132,9 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(SCOUT_QUEUE, "0 11 1 * *", {}, tz);
   // Drive stays overnight: it is a silent sync, it never messages him.
   await instance.schedule(DRIVE_QUEUE, "0 2 * * *", {}, tz);
+  // Every two hours through his waking day. It speaks only when a check
+  // actually fires, and never twice about the same thing inside twelve hours.
+  await instance.schedule(WATCH_QUEUE, "15 10,12,14,16,18,20,22 * * *", {}, tz);
 
   boss = instance;
   log.info({ timezone: config.timezone }, "job runner started");
