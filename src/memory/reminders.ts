@@ -3,6 +3,19 @@ import { one, query } from "../db/index.js";
 export type Reminder = { id: string; text: string; fire_at: Date | null; status: string };
 
 export async function createReminder(text: string, fireAt: Date): Promise<Reminder> {
+  // The same reminder five times, five minutes apart, is what he actually got:
+  // he asked more than once, and nothing checked. A repeat of the same words at
+  // roughly the same time is a re-ask, not a second reminder.
+  const existing = await one<Reminder>(
+    `SELECT id, text, fire_at, status FROM reminders
+     WHERE status = 'scheduled' AND text = $1
+       AND fire_at BETWEEN $2::timestamptz - interval '45 minutes'
+                       AND $2::timestamptz + interval '45 minutes'
+     LIMIT 1`,
+    [text, fireAt],
+  );
+  if (existing) return existing;
+
   const row = await one<Reminder>(
     `INSERT INTO reminders (text, fire_at) VALUES ($1, $2)
      RETURNING id, text, fire_at, status`,
