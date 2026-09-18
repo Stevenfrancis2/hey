@@ -3,8 +3,6 @@ import { query, one } from "../db/index.js";
 import { log } from "../log.js";
 import { snapshots, isConfigured as bambuConfigured } from "../integrations/bambu.js";
 import { filament, low as lowFilament } from "../memory/farm.js";
-import { generate } from "../agent/run.js";
-import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 /**
  * The part that speaks first.
@@ -94,26 +92,8 @@ export async function findConcerns(): Promise<Concern[]> {
     out.push({ kind: "deadline", detail: `${p.name} is due in ${p.days} days`, severity: 3 });
   }
 
-  // ── the study plan with a real deadline behind it ───────
-  const study = await one<{ name: string; days: number; left: number; total: number }>(
-    `SELECT g.name, extract(day from g.deadline - now())::int AS days,
-            count(*) FILTER (WHERE t.status <> 'done')::int AS left,
-            count(*)::int AS total
-     FROM study_goals g JOIN study_topics t ON t.goal_id = g.id
-     WHERE g.status = 'active' AND g.deadline IS NOT NULL
-     GROUP BY g.id LIMIT 1`);
-  if (study && study.days <= 21 && study.left > 0) {
-    const hoursNeeded = study.left * 6;
-    const hoursAvailable = Math.max(0, study.days) * Number(study.days > 0 ? 2 : 0);
-    if (hoursNeeded > hoursAvailable) {
-      out.push({
-        kind: "study_behind",
-        detail: `${study.name}: ${study.left} of ${study.total} topics left with ${study.days} days to go — ` +
-                `that needs about ${hoursNeeded}h and he has roughly ${hoursAvailable}h at 2h a day`,
-        severity: 3,
-      });
-    }
-  }
+  // No study check. He decides when to study; a watchdog nagging about a plan
+  // the bot drew up for him was the thing he complained about most.
 
   // ── money someone owes him ──────────────────────────────
   const owed = await one<{ n: number; total: string }>(
@@ -161,25 +141,11 @@ export async function runWatchdog(api: Api, chatId: number): Promise<void> {
     return;
   }
 
-  const instruction = [
-    `These are things that look wrong in Steven's world right now. He has not asked.`,
-    ``,
-    ...concerns.map((c) => `- [${c.severity}] ${c.detail}`),
-    ``,
-    `Write him a short message, plain text for Telegram.`,
-    `- Lead with the one that matters most. Two or three lines total.`,
-    `- Say what you would do about it, concretely, not "you may want to consider".`,
-    `- Look things up if it helps: check the farm, his tasks, his filament.`,
-    `- No greeting, no "just checking in", no apology for interrupting.`,
-    `- If two of these are really the same problem, say it once.`,
-  ].join("\n");
-
-  try {
-    const body = await generate(instruction, "low", "mid");
-    if (body.trim()) await api.sendMessage(chatId, body.trim());
-    log.info({ concerns: concerns.length }, "watchdog spoke");
-  } catch (err) {
-    log.error({ err }, "watchdog failed");
-    if (isProviderError(err)) await notifyOutage(api, chatId, err);
-  }
+  // Plain text, no model. The checks already say exactly what is wrong; paying
+  // Sonnet with the whole tool belt to rephrase three lines cost more than the
+  // checks were worth, and it stopped every time the account did.
+  const ordered = [...concerns].sort((x, y) => y.severity - x.severity);
+  const body = ordered.map((c) => `• ${c.detail}`).join("\n");
+  await api.sendMessage(chatId, body).catch((err) => log.error({ err }, "watchdog send failed"));
+  log.info({ concerns: concerns.length }, "watchdog spoke");
 }

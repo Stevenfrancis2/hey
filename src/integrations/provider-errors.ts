@@ -9,7 +9,7 @@ export type Provider = "anthropic" | "voyage" | "groq";
  * provider is down when the fault is ours sends him to check a status page over
  * a line of our own code. The distinction decides what he is told.
  */
-export type OutageKind = "credit" | "auth" | "rate_limit" | "unavailable" | "bad_request";
+export type OutageKind = "credit" | "limit" | "auth" | "rate_limit" | "unavailable" | "bad_request";
 
 const WHERE_TO_TOP_UP: Record<Provider, string> = {
   anthropic: "console.anthropic.com/settings/billing",
@@ -40,7 +40,7 @@ export class ProviderError extends Error {
 
   /** True when topping up or fixing a key is the only way out. */
   get needsHim(): boolean {
-    return this.kind === "credit" || this.kind === "auth";
+    return this.kind === "credit" || this.kind === "limit" || this.kind === "auth";
   }
 
   /** Plain text for Telegram: no markdown, short lines, says what to do. */
@@ -51,6 +51,18 @@ export class ProviderError extends Error {
     switch (this.kind) {
       case "credit":
         return `${name} is out of credit.\n\n${consequence}\n\nTop up at ${WHERE_TO_TOP_UP[this.provider]}, then send it again.`;
+      case "limit": {
+        // The monthly cap he set on the Anthropic console. Not empty credit — topping
+        // up does nothing; the cap has to be raised, or it waits for the reset date.
+        const until = /regain access on ([0-9-]+)/i.exec(this.detail)?.[1];
+        return `You hit the monthly spend limit set on your Anthropic account.
+
+${consequence}
+
+` +
+          `Raise it at console.anthropic.com/settings/limits` +
+          (until ? `, or it switches back on by itself on ${until}.` : ".");
+      }
       case "auth":
         return `${name} rejected the API key.\n\n${consequence}\n\nCheck the key at ${WHERE_TO_TOP_UP[this.provider]} — it may have been revoked or rotated.`;
       case "rate_limit":
@@ -89,6 +101,15 @@ const CREDIT_SIGNALS = [
   "no active subscription",
 ];
 
+/**
+ * A console spend cap arrives as a 400 invalid_request_error, the same shape as a
+ * malformed request. It was being reported as "a bug in me" while the account was
+ * simply capped for the rest of the month — and because a bad request is not
+ * something he can fix, the classifier swallowed it and his questions were filed
+ * as notes with no reply at all.
+ */
+const LIMIT_SIGNALS = ["specified api usage limits", "usage limit", "regain access on"];
+
 const RATE_LIMIT_SIGNALS = ["rate limit", "rate_limit", "too many requests"];
 
 function has(body: string, signals: string[]): boolean {
@@ -103,6 +124,7 @@ function kindFor(status: number, body: string): OutageKind {
   // Credit wins over rate limit when both are named: a 429 that says the balance
   // is empty is not going to clear on its own.
   if (has(body, CREDIT_SIGNALS)) return "credit";
+  if (has(body, LIMIT_SIGNALS)) return "limit";
   if (status === 429 || has(body, RATE_LIMIT_SIGNALS)) return "rate_limit";
   if (status >= 500) return "unavailable";
 

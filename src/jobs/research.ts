@@ -55,11 +55,12 @@ export async function runResearch(
     ].join("\n");
 
     try {
-      // Reading a few pages and writing two lines is Sonnet work. On Opus the
-      // eleven daily topics came to $1.55 a day — more than everything he
-      // actually types. The weekly digest keeps the better model, because it is
-      // once a week and it is the one he reads properly.
-      const body = await generate(instruction, "low", cadence === "daily" ? "mid" : "deep");
+      // Reading a few pages and writing two lines. On Opus with the full tool belt
+      // this was $0.11 a topic; on Sonnet still $0.06, because every topic carried
+      // 23k tokens of system prompt and tools it never used. Haiku with the search
+      // tool alone and two searches is a cent or two. The weekly digest gets
+      // Sonnet — it is once a week and the one he reads properly.
+      const body = await generate(instruction, "low", cadence === "daily" ? "fast" : "mid", "web");
       if (body.trim() && !/nothing worth reporting/i.test(body.slice(0, 120))) {
         await saveFinding(topic.id, body);
         sections.push(`${topic.name.toUpperCase()}\n${body.trim()}`);

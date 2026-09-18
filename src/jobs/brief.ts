@@ -29,10 +29,12 @@ export async function fireDueReminders(api: Api, chatId: number): Promise<number
 
 const MORNING = `It is early morning. Write Steven's daily brief.
 
-Look at his open tasks and anything due. Check study_status — if a plan is running, say where
-he stands and what today's topic is, and if he is behind, lead with that rather than burying
-it. Mention cards due for review only if there are some. Search his recent captures for open
-loops and anything he said he would do. Check the web only if something genuinely warrants it.
+Look at his open tasks, reminders and calendar for today. Search his recent captures for open
+loops and anything he said he would do. Do not check the web.
+
+Do not bring up studying, a study plan, topics or review cards. He studies when he decides to
+and tells you; being told every morning that he is behind on a plan he never asked for is
+exactly what he does not want.
 
 Keep it short enough to read on a phone while making coffee. Lead with what actually
 matters today. If today is quiet, say so in one line rather than padding it out.
@@ -41,9 +43,7 @@ No headers, no bullet spam. Write it the way a sharp assistant would say it out 
 const WEEKLY = `It is Sunday evening. Write Steven's weekly review.
 
 Go room by room over what moved and what did not: Cligli, drones, Royal Pizza, the bank AI
-project, finance, land, body. Use his tasks, his study progress, and his captures from the
-past week. Compare hours actually studied against what the plan needs — that gap is the
-single most useful number in this review.
+project, finance, land, body. Use his tasks, ledger and his captures from the past week.
 
 Be direct about what slipped. Name anything he has been avoiding. End with the two or
 three things that would matter most next week — not a list of ten.
@@ -59,7 +59,8 @@ export async function sendBrief(
 
   let body: string;
   try {
-    body = await generate(instruction, kind === "weekly" ? "high" : "low");
+    // Sonnet, not Opus: a morning summary of his own tasks is not a judgement call.
+    body = await generate(instruction, kind === "weekly" ? "high" : "low", "mid");
   } catch (err) {
     // A brief that just never arrives reads as the bot being dead. He should
     // find out from the 06:30 slot itself, not by noticing it stopped.

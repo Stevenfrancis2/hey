@@ -108,7 +108,12 @@ ${read}` : read;
 
     // He never has to choose between noting something and asking something.
     // Everything is stored; a reply happens only when he actually asked.
-    if (classification && NEEDS_THE_AGENT.has(classification.intent)) {
+    // A classifier that could not answer must not turn a question into a note.
+    // That is how "What are the 8 topics for nemo?" was filed and never answered.
+    const asked = classification
+      ? NEEDS_THE_AGENT.has(classification.intent)
+      : /\?\s*$/.test(text.trim());
+    if (asked) {
       // Sent before the model runs, so the voice lands while it is still
       // thinking rather than trailing the reply by several seconds.
       if (isGreeting(text)) await sendJarvisVoice(api, chatId);

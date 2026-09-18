@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { anthropic, recordUsage } from "./client.js";
-import { allTools, clientTools } from "./tools.js";
+import { allTools, clientTools, webSearchTool } from "./tools.js";
 import { buildSystem } from "./prompt.js";
 import { config } from "../config.js";
 import { one, query } from "../db/index.js";
@@ -136,6 +136,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
   let tokensOut = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
+  let searches = 0;
 
   try {
     for await (const message of runner) {
@@ -144,6 +145,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
       tokensOut += message.usage.output_tokens ?? 0;
       cacheRead += message.usage.cache_read_input_tokens ?? 0;
       cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
+      searches += message.usage.server_tool_use?.web_search_requests ?? 0;
 
       // A server tool (web search) can pause the turn. The runner only resumes
       // after a *client* tool result, so without this the answer is silently
@@ -164,6 +166,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
           output_tokens: tokensOut,
           cache_read_input_tokens: cacheRead,
           cache_creation_input_tokens: cacheWrite,
+          server_tool_use: { web_search_requests: searches },
         },
         Date.now() - started,
       );
@@ -179,6 +182,7 @@ export async function respond(chatId: number, userText: string): Promise<string>
       output_tokens: tokensOut,
       cache_read_input_tokens: cacheRead,
       cache_creation_input_tokens: cacheWrite,
+      server_tool_use: { web_search_requests: searches },
     },
     Date.now() - started,
   );
@@ -203,29 +207,49 @@ export async function respond(chatId: number, userText: string): Promise<string>
   return reply;
 }
 
-/** A one-shot generation with no history and no persistence — used by the briefs. */
 /**
  * The scheduled jobs: the desk, the brief, the weekly review, the scout.
  *
  * `tier` decides the model, because these are the only calls he does not make
- * himself and they run whether he reads them or not. Eleven desk topics on Opus
- * came to $1.55 a day — $46 a month, more than everything he actually types.
- * Reading a news page and summarising two lines is not Opus work.
+ * himself and they run whether he reads them or not.
+ *
+ * `kit` decides what goes in the request. A desk topic needs a web search and
+ * nothing else, yet every one used to ship the full system prompt and all 58
+ * tools — 23k tokens of cache write per topic, eleven topics a day, before a
+ * single page was read. "web" sends a two-line system and the search tool only.
  */
+export type Kit = "all" | "web";
+
+const LEAN_SYSTEM = (now: string) =>
+  `You research for Steven: Lebanon-based, runs CliGli (3D-printed toys on a Bambu farm), ` +
+  `VirtualB (360 tours and drone photography), SteFPV (FPV content, DCL racing) and builds ` +
+  `local NeMo AML agents for BLF. Plain text for Telegram, no markdown. Now: ${now}.`;
+
+/** Haiku cannot take web_search_20260209; the basic version works on it. */
+const basicWebSearch = { type: "web_search_20250305" as const, name: "web_search" as const, max_uses: 2 };
+
 export async function generate(
   instruction: string,
   effort: "low" | "high" = "high",
-  tier: Tier = "deep",
+  tier: Tier = "mid",
+  kit: Kit = "all",
 ): Promise<string> {
   const started = Date.now();
-  const system = await buildSystem();
   const model = modelFor(tier);
+  const system =
+    kit === "web"
+      ? LEAN_SYSTEM(new Date().toLocaleString("en-GB", { timeZone: config.timezone }))
+      : await buildSystem();
+  const tools =
+    kit === "web"
+      ? [isFast(model) ? basicWebSearch : { ...webSearchTool, max_uses: 2 }]
+      : isFast(model) ? clientTools : allTools;
   const runner = anthropic.beta.messages.toolRunner({
     model,
     max_tokens: 8192,
     system,
     messages: [{ role: "user", content: instruction }],
-    tools: isFast(model) ? clientTools : allTools,
+    tools,
     ...tuningFor(model, effort),
     max_iterations: MAX_ITERATIONS,
   });
@@ -235,6 +259,21 @@ export async function generate(
   let tokensOut = 0;
   let cacheRead = 0;
   let cacheWrite = 0;
+  let searches = 0;
+
+  const record = () =>
+    recordUsage(
+      "brief",
+      model,
+      {
+        input_tokens: tokensIn,
+        output_tokens: tokensOut,
+        cache_read_input_tokens: cacheRead,
+        cache_creation_input_tokens: cacheWrite,
+        server_tool_use: { web_search_requests: searches },
+      },
+      Date.now() - started,
+    );
 
   try {
     for await (const message of runner) {
@@ -243,25 +282,16 @@ export async function generate(
       tokensOut += message.usage.output_tokens ?? 0;
       cacheRead += message.usage.cache_read_input_tokens ?? 0;
       cacheWrite += message.usage.cache_creation_input_tokens ?? 0;
+      searches += message.usage.server_tool_use?.web_search_requests ?? 0;
       if (message.stop_reason === "pause_turn") {
         runner.pushMessages({ role: "assistant", content: message.content });
       }
     }
   } catch (err) {
+    if (tokensIn + tokensOut + cacheRead + cacheWrite > 0) await record();
     throw asProviderError("anthropic", err) ?? err;
   }
 
-  await recordUsage(
-    "brief",
-    model,
-    {
-      input_tokens: tokensIn,
-      output_tokens: tokensOut,
-      cache_read_input_tokens: cacheRead,
-      cache_creation_input_tokens: cacheWrite,
-    },
-    Date.now() - started,
-  );
-
+  await record();
   return final ? textOf(final.content) : "";
 }

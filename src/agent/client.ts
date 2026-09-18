@@ -26,6 +26,7 @@ export async function recordUsage(
     output_tokens?: number;
     cache_read_input_tokens?: number | null;
     cache_creation_input_tokens?: number | null;
+    server_tool_use?: { web_search_requests?: number | null } | null;
   },
   latencyMs: number,
 ): Promise<void> {
@@ -40,7 +41,10 @@ export async function recordUsage(
       cacheRead * rate.in * 0.1 +
       cacheWrite * rate.in * 1.25 +
       (usage.output_tokens ?? 0) * rate.out) /
-    1_000_000;
+      1_000_000 +
+    // Searches bill per call, $10 per thousand, on top of the tokens they pull in.
+    // Leaving them out is how /costs read $17 while the account had spent more.
+    (usage.server_tool_use?.web_search_requests ?? 0) * 0.01;
 
   await query(
     `INSERT INTO llm_calls (route, model, tokens_in, tokens_out, cache_read, cache_write, cost_usd, latency_ms)
