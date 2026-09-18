@@ -3,6 +3,7 @@ import { generate } from "../agent/run.js";
 import { dueTopics, saveFinding, markRun, lastFinding } from "../memory/research.js";
 import { log } from "../log.js";
 import { config } from "../config.js";
+import { push } from "../integrations/push.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 /**
@@ -101,6 +102,7 @@ export async function runResearch(
       log.error({ err }, "research send failed"),
     );
   }
+  void push("Desk", sections.map((s) => s.split("\n")[0]).join(" · "), "/desk");
   log.info({ cadence, topics: sections.length }, "research sent");
 }
 

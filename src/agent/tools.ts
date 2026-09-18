@@ -11,6 +11,7 @@ import { createReminder, createRepeating, listReminders, cancelReminder,
          cancelAllMatching } from "../memory/reminders.js";
 import { createProject, listProjects, updateProject } from "../memory/projects.js";
 import { addToWatchlist, listWatchlist, removeFromWatchlist } from "../memory/watchlist.js";
+import { saveContact, listContacts } from "../memory/contacts.js";
 import { listGear, addGear, setGearStatus } from "../memory/gear.js";
 import {
   findDecision, createDecision, upsertOption, addAssumption,
@@ -1426,6 +1427,52 @@ export const cancelRemindersTool = betaZodTool({
   },
 });
 
+// ── suppliers and sales leads ─────────────────────────────
+export const saveContactTool = betaZodTool({
+  name: "save_contact",
+  description:
+    "Save or update a supplier he buys from, a shop or client he could sell to (lead), or a " +
+    "partner. Use whenever he names a supplier, a store that stocks or might stock CliGli, " +
+    "or says he contacted / closed / dropped one. Calling again with the same kind and name updates it.",
+  inputSchema: z.object({
+    kind: z.enum(["supplier", "lead", "partner"]),
+    name: z.string(),
+    room: z.string().optional().describe("cligli, virtualb, stefpv, drones, royal_pizza, bank_ai…"),
+    offers: z.string().optional().describe("What they sell him, or what they would buy from him"),
+    location: z.string().optional(),
+    url: z.string().optional(),
+    phone: z.string().optional(),
+    notes: z.string().optional(),
+    status: z.enum(["new", "contacted", "active", "dead"]).optional(),
+  }),
+  run: async (input) => {
+    const c = await saveContact(input);
+    return `Saved ${c.kind} ${c.name} (${c.status}).`;
+  },
+});
+
+export const listContactsTool = betaZodTool({
+  name: "list_contacts",
+  description:
+    "His suppliers, sales leads and partners — who sells filament, parts or packaging in " +
+    "Lebanon, which toy shops to pitch, phone numbers, and how far along each one is. Check " +
+    "this BEFORE searching the web for a supplier: he may already have one.",
+  inputSchema: z.object({
+    kind: z.enum(["supplier", "lead", "partner"]).optional(),
+    text: z.string().optional().describe("Filter, e.g. 'filament' or 'Jounieh'"),
+  }),
+  run: async (input) => {
+    const rows = await listContacts(input);
+    if (rows.length === 0) return "No matching contacts.";
+    return rows.map((c) => [
+      `${c.kind.toUpperCase()} · ${c.name} · ${c.status}`,
+      c.offers && `  ${c.offers}`,
+      [c.location, c.phone, c.url].filter(Boolean).join(" · ") && `  ${[c.location, c.phone, c.url].filter(Boolean).join(" · ")}`,
+      c.notes && `  ${c.notes}`,
+    ].filter(Boolean).join("\n")).join("\n");
+  },
+});
+
 export const clientTools = [
   recallTool,
   createTaskTool,
@@ -1485,6 +1532,8 @@ export const clientTools = [
   updateTaskTool,
   deleteTaskTool,
   cancelRemindersTool,
+  saveContactTool,
+  listContactsTool,
 ];
 
 export const allTools = [...clientTools, webSearchTool];

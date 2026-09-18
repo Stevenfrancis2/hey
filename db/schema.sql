@@ -719,3 +719,38 @@ CREATE INDEX IF NOT EXISTS camera_events_chan_idx ON camera_events (channel, at 
 -- A reminder he cannot afford to sleep through rings his phone instead of
 -- buzzing it. Silent mode is exactly when the important ones fire.
 ALTER TABLE reminders ADD COLUMN IF NOT EXISTS call boolean NOT NULL DEFAULT false;
+
+-- Suppliers he buys from and shops he could sell to. The brain dump asked for
+-- "more suppliers" and "more sales" and neither had anywhere to live: a Lebanese
+-- reseller's phone number and a toy chain worth pitching are the same shape —
+-- who, what, where, how to reach them, and how far along he is with them.
+CREATE TABLE IF NOT EXISTS contacts (
+  id         uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind       text NOT NULL,                 -- supplier|lead|partner
+  name       text NOT NULL,
+  room       text,                          -- context key
+  offers     text,                          -- what they sell, or what they'd buy
+  location   text,
+  url        text,
+  phone      text,
+  notes      text,
+  status     text NOT NULL DEFAULT 'new',   -- new|contacted|active|dead
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (kind, name)
+);
+
+-- Teams work events mirrored one way into a dedicated Google calendar.
+CREATE TABLE IF NOT EXISTS calendar_mirror (
+  uid       text PRIMARY KEY,
+  google_id text NOT NULL,
+  hash      text NOT NULL,
+  synced_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Phones that turned on notifications in the home-screen app.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint   text PRIMARY KEY,
+  p256dh     text NOT NULL,
+  auth       text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);

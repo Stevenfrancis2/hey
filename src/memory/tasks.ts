@@ -1,4 +1,5 @@
 import { one, query } from "../db/index.js";
+import { overlap, SAME_THING } from "./similar.js";
 
 export type Task = {
   id: string;
@@ -18,6 +19,22 @@ export async function createTask(input: {
   dueAt?: Date | null;
   sourceCapture?: string | null;
 }): Promise<Task> {
+  // Said twice is one task. A voice note and its follow-up both saying "count the
+  // home cash" used to leave two rows he had to tick off separately.
+  const open = await query<Task>(
+    `SELECT t.id, t.title, t.detail, t.status, t.priority, t.due_at, c.key AS context_key
+     FROM tasks t LEFT JOIN contexts c ON c.id = t.context_id
+     WHERE t.status IN ('open','doing')`,
+  );
+  const same = open.find((t) => overlap(t.title, input.title) >= SAME_THING);
+  if (same) {
+    if (input.dueAt && (!same.due_at || new Date(same.due_at).getTime() !== input.dueAt.getTime())) {
+      await query(`UPDATE tasks SET due_at = $2 WHERE id = $1`, [same.id, input.dueAt]);
+      same.due_at = input.dueAt;
+    }
+    return same;
+  }
+
   const row = await one<Task>(
     `INSERT INTO tasks (title, detail, context_id, priority, due_at, source_capture)
      VALUES ($1, $2, (SELECT id FROM contexts WHERE key = $3), $4, $5, $6)

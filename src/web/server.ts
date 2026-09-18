@@ -20,9 +20,11 @@ import { setGlobals as setFarmGlobals, saveProduct, deleteProduct, adjustSealed,
 import {
   dashboard, tasksPage, projectsPage, roomsPage, roomPage,
   watchlistPage, searchPage, chatPage, loginPage, studyPage, moneyPage, deskPage, decisionsPage, bodyPage,
-  farmPage, calendarPage, printersPage, pricingPage, remindersPage, camerasPage,
+  farmPage, calendarPage, printersPage, pricingPage, remindersPage, camerasPage, contactsPage, wallPage,
 } from "./pages.js";
 import { recordCapture } from "../memory/capture.js";
+import { setContactStatus } from "../memory/contacts.js";
+import { SERVICE_WORKER, pushPublicKey, saveSubscription, push } from "../integrations/push.js";
 import { enqueueEnrich } from "../jobs/index.js";
 import { respond } from "../agent/run.js";
 import {
@@ -39,7 +41,7 @@ import { asProviderError } from "../integrations/provider-errors.js";
 // The Google callback carries no session cookie (Google redirects the browser
 // there), so it is guarded by a one-time state value instead.
 const OPEN_PATHS = new Set([
-  "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png", "/jarvis.mp3",
+  "/health", "/login", "/telegram", "/manifest.webmanifest", "/icon.png", "/jarvis.mp3", "/sw.js",
   "/auth/google/callback",
   // Pushed to by the watcher on his LAN, which has no browser session. Guarded
   // by its own bearer token instead.
@@ -87,6 +89,9 @@ export async function startServer() {
 
   app.get("/manifest.webmanifest", async (_req, reply) =>
     reply.type("application/manifest+json").send(MANIFEST));
+  // The worker must be served from the root to control every page.
+  app.get("/sw.js", async (_req, reply) =>
+    reply.type("application/javascript").header("cache-control", "no-cache").send(SERVICE_WORKER));
   app.get("/icon.png", async (_req, reply) =>
     reply.type("image/png").header("cache-control", "public, max-age=86400").send(ICON));
   app.get("/icon-192.png", async (_req, reply) =>
@@ -192,6 +197,20 @@ export async function startServer() {
   app.get<{ Params: { key: string } }>("/room/:key", async (request, reply) =>
     reply.type("text/html").send(await roomPage(request.params.key)));
   app.get("/decisions", async (_r, reply) => reply.type("text/html").send(await decisionsPage()));
+  app.get("/push/key", async (_r, reply) => reply.type("text/plain").send(pushPublicKey()));
+  app.post<{ Body: { endpoint?: string; keys?: { p256dh?: string; auth?: string } } }>("/push/subscribe", async (r, reply) => {
+    const b = r.body;
+    if (!b?.endpoint || !b.keys?.p256dh || !b.keys?.auth) return reply.code(400).send("bad subscription");
+    await saveSubscription({ endpoint: b.endpoint, keys: { p256dh: b.keys.p256dh, auth: b.keys.auth } });
+    reply.send("ok");
+  });
+  app.get("/contacts", async (_r, reply) => reply.type("text/html").send(await contactsPage()));
+  app.get("/wall", async (_r, reply) => reply.type("text/html").send(await wallPage()));
+  app.post<{ Params: { id: string }; Body: { status?: string } }>("/contacts/:id/status", async (r, reply) => {
+    const status = r.body?.status ?? "";
+    if (["new", "contacted", "active", "dead"].includes(status)) await setContactStatus(r.params.id, status);
+    reply.redirect("/contacts");
+  });
   app.get("/body", async (_r, reply) => reply.type("text/html").send(await bodyPage()));
   app.get("/desk", async (_r, reply) => reply.type("text/html").send(await deskPage()));
   app.get("/money", async (_r, reply) => reply.type("text/html").send(await moneyPage()));
@@ -267,6 +286,7 @@ export async function startServer() {
           await bot.api.sendMessage(config.telegram.ownerId, caption)
             .catch((err) => log.warn({ err }, "camera alert failed"));
         }
+        void push("Camera", caption, "/cameras");
       }
       reply.send({ ok: true, notified: res.notify });
     });

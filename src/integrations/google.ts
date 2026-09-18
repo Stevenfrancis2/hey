@@ -150,17 +150,19 @@ export type DriveFile = {
   mimeType: string;
   modifiedTime: string;
   webViewLink?: string;
+  parents?: string[];
 };
 
-export async function listDriveFiles(opts: { since?: Date | null; folderId?: string | null; limit?: number } = {}):
+export async function listDriveFiles(opts: { since?: Date | null; folderId?: string | null; folderIds?: string[]; limit?: number } = {}):
   Promise<DriveFile[]> {
-  const clauses = ["trashed = false"];
+  const clauses = ["trashed = false", "mimeType != 'application/vnd.google-apps.folder'"];
   if (opts.since) clauses.push(`modifiedTime > '${opts.since.toISOString()}'`);
-  if (opts.folderId) clauses.push(`'${opts.folderId}' in parents`);
+  const parents = [...(opts.folderIds ?? []), ...(opts.folderId ? [opts.folderId] : [])];
+  if (parents.length > 0) clauses.push(`(${parents.map((id) => `'${id}' in parents`).join(" or ")})`);
 
   const params = new URLSearchParams({
     q: clauses.join(" and "),
-    fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
+    fields: "files(id,name,mimeType,modifiedTime,webViewLink,parents)",
     orderBy: "modifiedTime desc",
     pageSize: String(opts.limit ?? 50),
     supportsAllDrives: "true",
@@ -170,11 +172,28 @@ export async function listDriveFiles(opts: { since?: Date | null; folderId?: str
   return body.files ?? [];
 }
 
+/**
+ * Folders found by name, not by ID. The grant is drive.readonly, so the bot
+ * cannot create a folder — but it can find one he makes, including one a friend
+ * shared with him, without him ever copying an ID out of a URL.
+ */
+export async function findFolders(name: string): Promise<{ id: string; name: string }[]> {
+  const params = new URLSearchParams({
+    q: `mimeType = 'application/vnd.google-apps.folder' and trashed = false and name = '${name.replace(/'/g, "\'")}'`,
+    fields: "files(id,name)",
+    pageSize: "10",
+    supportsAllDrives: "true",
+    includeItemsFromAllDrives: "true",
+  });
+  const body = await api<{ files: { id: string; name: string }[] }>(`${DRIVE}/files?${params.toString()}`);
+  return body.files ?? [];
+}
+
 export async function searchDrive(text: string, limit = 15): Promise<DriveFile[]> {
   const escaped = text.replace(/'/g, "\\'");
   const params = new URLSearchParams({
     q: `trashed = false and fullText contains '${escaped}'`,
-    fields: "files(id,name,mimeType,modifiedTime,webViewLink)",
+    fields: "files(id,name,mimeType,modifiedTime,webViewLink,parents)",
     pageSize: String(limit),
     supportsAllDrives: "true",
     includeItemsFromAllDrives: "true",
@@ -276,6 +295,45 @@ export async function createEvent(input: {
       recurrence,
     }),
   });
+}
+
+/**
+ * A calendar of its own for mirrored work events. Writing them into his primary
+ * calendar would mix them with events the bot creates and make "never write
+ * back to work" a rule someone has to remember instead of a property of where
+ * the data lives.
+ */
+export async function ensureCalendar(summary: string): Promise<string> {
+  const list = await api<{ items: { id: string; summary: string }[] }>(
+    `${CALENDAR}/users/me/calendarList?minAccessRole=owner`,
+  );
+  const found = list.items?.find((c) => c.summary === summary);
+  if (found) return found.id;
+  const created = await api<{ id: string }>(`${CALENDAR}/calendars`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ summary, timeZone: config.timezone }),
+  });
+  return created.id;
+}
+
+export async function putEvent(calendarId: string, eventId: string | null, body: object): Promise<string> {
+  const base = `${CALENDAR}/calendars/${encodeURIComponent(calendarId)}/events`;
+  const res = await api<{ id: string }>(eventId ? `${base}/${encodeURIComponent(eventId)}` : base, {
+    method: eventId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.id;
+}
+
+export async function deleteEventIn(calendarId: string, id: string): Promise<void> {
+  const token = await accessToken();
+  const res = await fetch(
+    `${CALENDAR}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(id)}`,
+    { method: "DELETE", headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok && res.status !== 404 && res.status !== 410) throw new Error(`Calendar delete ${res.status}`);
 }
 
 export async function deleteEvent(id: string): Promise<void> {

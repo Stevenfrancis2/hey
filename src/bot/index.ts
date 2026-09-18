@@ -17,6 +17,7 @@ import { summary as moneySummary, outstanding, affordability, money } from "../m
 import { runResearch, runScout } from "../jobs/research.js";
 import { isConfigured as googleConfigured, connectedAccount } from "../integrations/google.js";
 import { syncDrive } from "../jobs/drive.js";
+import { mirrorTeams, setTeamsUrl } from "../jobs/mirror.js";
 import { today as bodyToday, week as bodyWeek } from "../memory/body.js";
 import { listDecisions, findDecision, listOptions, listAssumptions, optionLine } from "../memory/decisions.js";
 
@@ -317,6 +318,28 @@ bot.command("drive", async (ctx) => {
       ? "Nothing new in Drive — or Google isn't connected yet (/connect)."
       : `Scanned ${scanned} file${scanned === 1 ? "" : "s"}, indexed ${indexed}.`,
   );
+});
+
+bot.command("teams", async (ctx) => {
+  const url = (ctx.match ?? "").trim();
+  if (!/^(https?|webcal):\/\//i.test(url)) {
+    await ctx.reply(
+      "Send /teams followed by your published Outlook calendar link.\n\n" +
+        "Outlook on the web → Settings → Calendar → Shared calendars → Publish a calendar → " +
+        "pick your calendar, 'Can view all details' → Publish → copy the ICS link.",
+    );
+    return;
+  }
+  await setTeamsUrl(url);
+  await ctx.replyWithChatAction("typing");
+  try {
+    const r = await mirrorTeams();
+    await ctx.reply(r
+      ? `Mirroring your work calendar into "Work (Teams)" in Google: ${r.added} events added. It re-checks every 15 minutes and never writes back to work.`
+      : "Saved, but Google isn't connected — send /connect first.");
+  } catch (err) {
+    await ctx.reply(`Saved the link, but I couldn't read it: ${err instanceof Error ? err.message : String(err)}`);
+  }
 });
 
 bot.command("export", async (ctx) => {

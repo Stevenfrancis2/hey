@@ -14,6 +14,8 @@ import { listDecisions, findDecision, listOptions, listAssumptions, payback } fr
 import { today as bodyToday, week as bodyWeek, recentBody } from "../memory/body.js";
 import { netWorth } from "../memory/networth.js";
 import { listCameras, recentEvents } from "../memory/cameras.js";
+import { listContacts } from "../memory/contacts.js";
+import { findConcerns } from "../jobs/watch.js";
 import { farmStatus, filament as farmFilament, low as lowFilament, failures as farmFailures,
          products as farmProducts, globals as farmGlobals, priceList } from "../memory/farm.js";
 import { listEvents, connectedAccount } from "../integrations/google.js";
@@ -1104,4 +1106,82 @@ ${events.length === 0 ? `<p class="empty">Nothing seen yet.</p>` : ""}
   <b>${when(e.at)}</b></span>
 </a>`).join("")}</div>
 `);
+}
+
+export async function contactsPage(): Promise<string> {
+  const rows = await listContacts();
+  const group = (kind: string, title: string, blurb: string) => {
+    const list = rows.filter((c) => c.kind === kind);
+    if (list.length === 0) return "";
+    return `<h2>${title}</h2><p class="muted">${blurb}</p>${list.map((c) => `
+<div class="card"><div class="row"><h3>${c.url ? `<a href="${escapeHtml(c.url)}" rel="noopener" target="_blank">${escapeHtml(c.name)}</a>` : escapeHtml(c.name)}</h3>
+<span class="tag${c.status === "active" ? " ok" : c.status === "new" ? " due" : ""}">${escapeHtml(c.status)}</span></div>
+${c.offers ? `<p>${escapeHtml(c.offers)}</p>` : ""}
+${c.location || c.phone ? `<p class="muted">${[c.location, c.phone ? `<a href="tel:${escapeHtml(c.phone.replace(/\s/g, ""))}">${escapeHtml(c.phone)}</a>` : null].filter(Boolean).join(" · ")}</p>` : ""}
+${c.notes ? `<p style="font-size:.85rem">${escapeHtml(c.notes)}</p>` : ""}
+<form method="post" action="/contacts/${c.id}/status" class="row" style="gap:6px;margin-top:6px">
+${["contacted", "active", "dead"].filter((s) => s !== c.status).map((s) =>
+  `<button name="status" value="${s}">${s}</button>`).join("")}
+</form></div>`).join("")}`;
+  };
+  return page("Contacts", "/contacts", `
+<h1>Contacts</h1>
+<p class="muted">Suppliers and the shops worth pitching. Tell the bot "I called Cube 3D" and it updates these.</p>
+${rows.length === 0 ? '<p class="empty">Nothing yet.</p>' : ""}
+${group("supplier", "Suppliers", "Where filament, parts and printers come from.")}
+${group("lead", "Sales leads", "Shops and chains that could stock CliGli.")}
+${group("partner", "Partners", "")}
+`);
+}
+
+/**
+ * The wall screen: a tablet or old monitor left on in the workshop. No nav, no
+ * buttons, type readable from across the room, refreshes itself. What matters
+ * at a glance is which printer finishes next and whether anything is wrong.
+ */
+export async function wallPage(): Promise<string> {
+  const [tasks, reminders, concerns, events] = await Promise.all([
+    listTasks({ dueWithinDays: 1 }), listReminders(), findConcerns(), recentEvents(1),
+  ]);
+  const shots = bambuConfigured() ? snapshots() : [];
+  const running = shots.filter((s) => s.state === "RUNNING").sort((a, b) => a.remainingMin - b.remainingMin);
+  const idle = shots.filter((s) => s.state !== "RUNNING");
+  const hm = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}` : `${m}m`);
+  const now = new Date();
+  const time = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+  const date = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Beirut" });
+  const soon = reminders.filter((r) => r.fire_at && new Date(r.fire_at).getTime() - Date.now() < 12 * 3600e3).slice(0, 4);
+  const cam = events[0];
+
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="refresh" content="30"><title>Wall</title>
+<style>
+:root{--bg:#0b100e;--fg:#e8efe9;--mut:#7d8c84;--ok:#4fd18b;--bad:#ff6b5b;--card:#131b18}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--fg);font:18px/1.35 system-ui,sans-serif;padding:24px}
+.top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px}
+.clock{font-size:4.5rem;font-weight:700;letter-spacing:-2px}.date{color:var(--mut);font-size:1.3rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:22px}
+.p{background:var(--card);border-radius:14px;padding:14px;border-left:5px solid var(--ok)}
+.p.err{border-color:var(--bad)}.p.idle{border-color:#2a3530;opacity:.7}
+.p b{font-size:2.4rem;display:block}.p .n{color:var(--mut);font-size:.95rem}.p .j{font-size:.85rem;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:6px;background:#22302a;border-radius:3px;margin:6px 0}.bar i{display:block;height:100%;background:var(--ok);border-radius:3px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}
+h2{font-size:.9rem;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin-bottom:8px}
+li{list-style:none;padding:8px 0;border-bottom:1px solid #1d2622;font-size:1.15rem}.warn li{color:var(--bad)}
+.m{color:var(--mut)}
+</style></head><body>
+<div class="top"><div class="clock">${time}</div><div class="date">${escapeHtml(date)}</div></div>
+${concerns.some((c) => c.severity >= 2) ? `<div class="warn" style="margin-bottom:18px"><h2>Needs you</h2><ul>${concerns.filter((c) => c.severity >= 2).slice(0, 4).map((c) => `<li>${escapeHtml(c.detail)}</li>`).join("")}</ul></div>` : ""}
+<div class="grid">
+${running.map((s) => `<div class="p${s.hms.length ? " err" : ""}"><span class="n">${escapeHtml(s.name)}</span><b>${hm(s.remainingMin)}</b>
+<div class="bar"><i style="width:${Math.max(0, Math.min(100, s.percent))}%"></i></div><div class="j">${escapeHtml(s.job || "")}</div></div>`).join("")}
+${idle.map((s) => `<div class="p idle${s.hms.length ? " err" : ""}"><span class="n">${escapeHtml(s.name)}</span><b style="font-size:1.4rem">${s.online ? "idle" : "offline"}</b></div>`).join("")}
+${shots.length === 0 ? `<p class="m">Printers not connected.</p>` : ""}
+</div>
+<div class="cols">
+<div><h2>Today</h2><ul>${tasks.slice(0, 7).map((t) => `<li>${escapeHtml(t.title)}</li>`).join("") || `<li class="m">Nothing due.</li>`}</ul></div>
+<div><h2>Coming up</h2><ul>${soon.map((r) => `<li><span class="m">${new Date(r.fire_at!).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" })}</span> ${escapeHtml(r.text)}</li>`).join("") || `<li class="m">No reminders in the next 12h.</li>`}
+${cam ? `<li class="m">Last motion: ${escapeHtml(cam.name ?? `channel ${cam.channel}`)}, ${when(cam.at)}</li>` : ""}</ul></div>
+</div></body></html>`;
 }

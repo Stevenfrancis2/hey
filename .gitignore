@@ -6,3 +6,4 @@ dist/
 media/
 .neon
 *.tmp.ts
+watcher/nvr-pass.txt

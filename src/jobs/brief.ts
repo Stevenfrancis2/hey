@@ -4,6 +4,7 @@ import { claimDueReminders } from "../memory/reminders.js";
 import { query } from "../db/index.js";
 import { log } from "../log.js";
 import { call as placeCall } from "../integrations/call.js";
+import { push } from "../integrations/push.js";
 import { isProviderError, notifyOutage } from "../integrations/provider-errors.js";
 
 export async function fireDueReminders(api: Api, chatId: number): Promise<number> {
@@ -12,6 +13,7 @@ export async function fireDueReminders(api: Api, chatId: number): Promise<number
     await api.sendMessage(chatId, `⏰ ${reminder.text}`).catch((err) =>
       log.error({ err, id: reminder.id }, "reminder send failed"),
     );
+    void push("Reminder", reminder.text, "/reminders");
     // A notification cannot wake him: his phone is silent while he works, and
     // silent is exactly when the reminders that matter fire. A call is the one
     // thing iOS lets through.
@@ -72,5 +74,6 @@ export async function sendBrief(
 
   await query(`INSERT INTO briefs (kind, body_md, sent_at) VALUES ($1, $2, now())`, [kind, body]);
   await api.sendMessage(chatId, body).catch((err) => log.error({ err, kind }, "brief send failed"));
+  void push(kind === "morning" ? "Morning brief" : "Weekly review", body, "/");
   log.info({ kind }, "brief sent");
 }

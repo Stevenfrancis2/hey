@@ -1,6 +1,7 @@
 import type { Api } from "grammy";
 import { query, one } from "../db/index.js";
 import { log } from "../log.js";
+import { push } from "../integrations/push.js";
 import { snapshots, isConfigured as bambuConfigured } from "../integrations/bambu.js";
 import { filament, low as lowFilament } from "../memory/farm.js";
 
@@ -147,5 +148,6 @@ export async function runWatchdog(api: Api, chatId: number): Promise<void> {
   const ordered = [...concerns].sort((x, y) => y.severity - x.severity);
   const body = ordered.map((c) => `• ${c.detail}`).join("\n");
   await api.sendMessage(chatId, body).catch((err) => log.error({ err }, "watchdog send failed"));
+  void push("Heads up", body, "/");
   log.info({ concerns: concerns.length }, "watchdog spoke");
 }

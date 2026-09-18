@@ -35,6 +35,8 @@ const NAV: [string, string, string][] = [
   ["/study", "Study", "work"],
   ["/watchlist", "Watchlist", "work"],
   ["/decisions", "Decisions", "work"],
+  ["/contacts", "Contacts", "work"],
+  ["/wall", "Wall", "life"],
   ["/rooms", "Rooms", "life"],
   ["/body", "Body", "life"],
   ["/search", "Search", "life"],
@@ -363,9 +365,33 @@ button.ghost:hover{color:var(--signal);filter:none}
       <div class="bar"><span class="dot"></span><b>Second Steven</b></div>
       <nav class="tabs" aria-label="Sections">${links("tabs")}</nav>
     </header>
-    <main id="main">${body}</main>
+    <main id="main"><div id="pushbar" hidden style="margin-bottom:12px"><button id="pushbtn">Turn on notifications</button>
+<span class="muted" style="font-size:.85rem"> reminders, cameras and alerts straight to this phone</span></div>${body}</main>
   </div>
 </div>
+<script>
+// iOS only allows push from the Home Screen app and only after a tap, so the
+// button appears there until he has said yes once.
+(async () => {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  const reg = await navigator.serviceWorker.register("/sw.js");
+  const existing = await reg.pushManager.getSubscription();
+  if (existing && Notification.permission === "granted") return;
+  const bar = document.getElementById("pushbar");
+  bar.hidden = false;
+  document.getElementById("pushbtn").onclick = async () => {
+    if (await Notification.requestPermission() !== "granted") return;
+    const key = await (await fetch("/push/key")).text();
+    const raw = atob(key.replace(/-/g, "+").replace(/_/g, "/"));
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: Uint8Array.from(raw, (c) => c.charCodeAt(0)),
+    });
+    await fetch("/push/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub) });
+    bar.innerHTML = "<span class='muted'>Notifications on for this phone.</span>";
+  };
+})();
+</script>
 </body></html>`;
 }
 

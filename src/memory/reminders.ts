@@ -1,4 +1,5 @@
 import { one, query } from "../db/index.js";
+import { overlap, SAME_THING } from "./similar.js";
 
 export type Reminder = { id: string; text: string; fire_at: Date | null; status: string; call?: boolean };
 
@@ -6,14 +7,14 @@ export async function createReminder(text: string, fireAt: Date, ring = false): 
   // The same reminder five times, five minutes apart, is what he actually got:
   // he asked more than once, and nothing checked. A repeat of the same words at
   // roughly the same time is a re-ask, not a second reminder.
-  const existing = await one<Reminder>(
+  const nearby = await query<Reminder>(
     `SELECT id, text, fire_at, status, call FROM reminders
-     WHERE status = 'scheduled' AND text = $1
-       AND fire_at BETWEEN $2::timestamptz - interval '45 minutes'
-                       AND $2::timestamptz + interval '45 minutes'
-     LIMIT 1`,
-    [text, fireAt],
+     WHERE status = 'scheduled'
+       AND fire_at BETWEEN $1::timestamptz - interval '45 minutes'
+                       AND $1::timestamptz + interval '45 minutes'`,
+    [fireAt],
   );
+  const existing = nearby.find((r) => overlap(r.text, text) >= SAME_THING);
   if (existing) return existing;
 
   const row = await one<Reminder>(

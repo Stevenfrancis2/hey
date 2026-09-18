@@ -8,6 +8,7 @@ import { runArchive } from "./archive.js";
 import { runResearch, runScout } from "./research.js";
 import { syncDrive } from "./drive.js";
 import { runWatchdog } from "./watch.js";
+import { mirrorTeams } from "./mirror.js";
 import { config } from "../config.js";
 import { status as budgetStatus, warnIfNeeded } from "../memory/budget.js";
 
@@ -22,6 +23,7 @@ const DESK_WEEKLY_QUEUE = "research.weekly";
 const SCOUT_QUEUE = "automation.scout";
 const DRIVE_QUEUE = "drive.sync";
 const WATCH_QUEUE = "watchdog";
+const MIRROR_QUEUE = "calendar.mirror";
 
 export type EnrichJob = { captureId: string };
 
@@ -53,7 +55,7 @@ export async function startJobs(api: Api): Promise<PgBoss> {
 
   for (const name of [TICK_QUEUE, MORNING_QUEUE, WEEKLY_QUEUE, ARCHIVE_QUEUE, SWEEP_QUEUE,
                       DESK_DAILY_QUEUE, DESK_WEEKLY_QUEUE, SCOUT_QUEUE, DRIVE_QUEUE,
-                      WATCH_QUEUE]) {
+                      WATCH_QUEUE, MIRROR_QUEUE]) {
     await instance.createQueue(name);
   }
 
@@ -90,6 +92,9 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   });
   await instance.work(DRIVE_QUEUE, { batchSize: 1 }, async () => {
     await syncDrive();
+  });
+  await instance.work(MIRROR_QUEUE, { batchSize: 1 }, async () => {
+    await mirrorTeams();
   });
   await instance.work(WATCH_QUEUE, { batchSize: 1 }, async () => {
     await runWatchdog(api, chatId);
@@ -130,10 +135,13 @@ export async function startJobs(api: Api): Promise<PgBoss> {
   await instance.schedule(DESK_DAILY_QUEUE, "0 14 * * *", {}, tz);    // mid own-business block
   await instance.schedule(DESK_WEEKLY_QUEUE, "0 11 * * 6", {}, tz);   // Saturday, off shift
   await instance.schedule(SCOUT_QUEUE, "0 11 1 * *", {}, tz);
-  // Drive stays overnight: it is a silent sync, it never messages him.
-  await instance.schedule(DRIVE_QUEUE, "0 2 * * *", {}, tz);
+  // Every two hours: the BLF folder is shared with his partner, and a file
+  // dropped in at noon should be askable that afternoon, not tomorrow.
+  await instance.schedule(DRIVE_QUEUE, "5 */2 * * *", {}, tz);
   // Every two hours through his waking day. It speaks only when a check
   // actually fires, and never twice about the same thing inside twelve hours.
+  // Every fifteen minutes: a meeting moved at work should move here before it starts.
+  await instance.schedule(MIRROR_QUEUE, "*/15 * * * *", {}, tz);
   await instance.schedule(WATCH_QUEUE, "15 10,12,14,16,18,20,22 * * *", {}, tz);
 
   boss = instance;
